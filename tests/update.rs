@@ -154,7 +154,7 @@ fn a_repository_with_no_release_yet_is_not_found() -> TestResult {
         let out = env.cmd()?.args(&args).output()?;
         assert_eq!(out.status.code(), Some(4), "{args:?}");
         assert_eq!(parse_error(&out.stderr)?["error"]["code"], "not_found");
-        assert!(out.stdout.is_empty());
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "", "{args:?}");
     }
     Ok(())
 }
