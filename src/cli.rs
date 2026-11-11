@@ -6,7 +6,8 @@ use clap_complete::Shell;
 
 use crate::client::Client;
 use crate::commands::{
-    api, auth, blocks, draft, guide, media, nav, pages, revisions, settings, versions, Context,
+    api, auth, blocks, draft, guide, media, nav, pages, revisions, settings, update, versions,
+    Context,
 };
 use crate::config::{self, Config, Overrides};
 use crate::error::Result;
@@ -24,7 +25,7 @@ then `draft validate about` and `draft publish about`. Nothing is live before th
 `firebird-cli guide` is the walkthrough for scripts and AI agents; `guide --list`
 shows its topics and `guide <topic>` prints one, e.g. `guide drafts` (what is
 live and what waits in a draft), `guide blocks` (how block data is written),
-`guide undo`, `guide exit`.";
+`guide undo`, `guide exit`. `firebird-cli update` installs the latest release.";
 
 #[derive(Debug, Parser)]
 #[command(name = "firebird-cli", version, about = ABOUT, after_help = AFTER_HELP, propagate_version = true)]
@@ -139,6 +140,9 @@ pub enum Command {
     Api(api::ApiArgs),
     /// The usage guide for scripts and AI agents, whole or one topic (`guide drafts`)
     Guide(guide::GuideArgs),
+    /// Replace this binary with the latest release
+    #[command(visible_alias = "upgrade")]
+    Update(update::UpdateArgs),
     /// Generate shell completions
     Completions {
         #[arg(value_enum)]
@@ -172,10 +176,25 @@ fn on_command_line(matches: &ArgMatches, id: &str) -> bool {
 pub fn run(cli: Cli) -> Result<()> {
     let printer = Printer::new(cli.global.format(), cli.global.quiet);
     crate::sources::set_allow_any(cli.global.allow_any_source);
+    let notify = !matches!(
+        cli.command,
+        Command::Update(_) | Command::Guide(_) | Command::Completions { .. }
+    );
+    let result = dispatch(cli, printer);
+    if notify {
+        update::notify(printer);
+    }
+    result
+}
+
+fn dispatch(cli: Cli, printer: Printer) -> Result<()> {
     let overrides = cli.global.overrides();
 
     match cli.command {
         Command::Guide(args) => guide::run(&args),
+        // Before any config is read: the updater talks to GitHub with its own
+        // clients and is never given the site's key or token.
+        Command::Update(args) => update::run(printer, &args),
         Command::Completions { shell } => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "firebird-cli", &mut std::io::stdout());
@@ -218,7 +237,10 @@ pub fn run(cli: Cli) -> Result<()> {
                 Command::Media(cmd) => media::run(&ctx, &cmd),
                 Command::Revisions(cmd) => revisions::run(&ctx, &cmd),
                 Command::Api(args) => api::run(&ctx, &args),
-                Command::Guide(_) | Command::Completions { .. } | Command::Auth(_) => Ok(()),
+                Command::Guide(_)
+                | Command::Update(_)
+                | Command::Completions { .. }
+                | Command::Auth(_) => Ok(()),
             }
         }
     }

@@ -9,8 +9,10 @@ pub mod guide;
 pub mod media;
 pub mod nav;
 pub mod pages;
+pub mod provenance;
 pub mod revisions;
 pub mod settings;
+pub mod update;
 pub mod versions;
 
 use std::io::{self, IsTerminal, Write};

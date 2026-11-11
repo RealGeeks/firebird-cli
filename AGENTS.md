@@ -12,11 +12,17 @@ draft: add, patch, move, duplicate, remove and reorder blocks, then validate,
 publish or discard. Changing live settings, restoring a revision and
 uploading media have no command yet; they go through `firebird-cli api`.
 
-Build it from a checkout (there are no release binaries yet):
+Install a release, or build it from a checkout when the
+[Releases page](https://github.com/RealGeeks/firebird-cli/releases) has none
+yet:
 
+<!-- x-release-please-start-version -->
 ```bash
-cargo install --path .
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.sh | sh
+# Windows: irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 | iex
+# no release yet, or from a checkout: cargo install --path .
 ```
+<!-- x-release-please-end -->
 
 Sign in. A key is made by the site's owner on the site's Integrations page,
 so ask your human for one:
@@ -98,6 +104,8 @@ src/
     ├── media.rs       # media list / get (read only)
     ├── revisions.rs   # revisions list / get (read only)
     ├── guide.rs       # `guide [topic]` over docs/GUIDE.md
+    ├── update.rs      # self-update from the GitHub release archives (self_update crate, its own client)
+    ├── provenance.rs  # update's Sigstore check of the archive's build-provenance attestation (ring backend)
     └── api.rs         # raw METHOD PATH escape hatch
 tests/                 # end-to-end tests: the binary against a mockito server
 docs/GUIDE.md          # agent-facing guide, embedded via include_str!; `guide <topic>` prints one `## N. Title` section
@@ -168,6 +176,27 @@ docs/GUIDE.md          # agent-facing guide, embedded via include_str!; `guide <
 - Exit codes are a contract shared with geekcli (`error::exit`); do not
   renumber them.
 
+- `firebird-cli update` is the one request path that leaves the API: it
+  talks to GitHub through `self_update`'s own client and must never be handed
+  the site's key or token (`cli::dispatch` runs it before any config is
+  read). Before extracting, it verifies the archive's build-provenance
+  attestation against the embedded Sigstore root, pinned to
+  `release.yml@refs/heads/main` of RealGeeks/firebird-cli whatever
+  `FIREBIRD_CLI_REPO` says (`commands/provenance.rs`); keep the sigstore
+  crates current so the root does not go stale. Nothing updates in the
+  background; scripts and agents need the version to stay put between calls.
+  `update::notify` mentions a newer release once a day, on a terminal only.
+- The installer and updater variables are `FIREBIRD_CLI_*` (`_VERSION`,
+  `_INSTALL_DIR`, `_REPO`, `_SKIP_PROVENANCE`, `_NO_UPDATE_CHECK`); the ones
+  about a site and its API are `FIREBIRD_*`.
+- Archive and folder names (`firebird-cli-<tag>-<target>.tar.gz|.zip`, with
+  a `.sha256` beside each) come from `release.yml`. `install.sh`,
+  `install.ps1` and `commands/update.rs` must stay in step with it.
+- The provenance tests use a real attestation of a geekcli release
+  (`src/testdata/`), because firebird-cli had no release when they were
+  written: it proves the verifier works and that another repository's build
+  is refused. Once a release exists, add one of its own as the positive case.
+
 ### Build and test
 
 ```bash
@@ -178,9 +207,23 @@ cargo fmt --check
 ```
 
 All must pass clean before a commit. Do not silence lints with `#[allow]`,
-in tests either; fix the code (tests return `Result` and use `?`). CI
-(`.github/workflows/ci.yml`) runs the same on every push and PR. Actions are
-pinned by commit SHA.
+in tests either; fix the code (tests return `Result` and use `?`).
+
+CI runs them on every push and PR (`ci.yml`: fmt, clippy, tests on Linux,
+macOS and Windows, a static musl build run on old distros, and a check on
+the MSRV, `rust-version` in Cargo.toml), plus `quality.yml`: `cargo deny
+check` (advisories, licenses, sources; see `deny.toml`) and zizmor over the
+workflows. `pr.yml` requires a conventional-commit PR title. Actions are
+pinned by commit SHA; Dependabot updates the pins and the crates.
+
+`release.yml` uses release-please: it keeps a release PR open on `main` from
+the conventional commits, and merging that PR tags a version, builds the
+macOS/Linux (static musl)/Windows archives with THIRD_PARTY_LICENSES.html
+(cargo-about, `about.toml`), attests their build provenance, uploads them to
+the GitHub release, then runs `install.sh` and `install.ps1` against it.
+release-please also bumps the version in Cargo.toml and in the lines marked
+`x-release-please-version` in README.md, AGENTS.md, docs/GUIDE.md and the
+install scripts. Never tag or edit a version by hand.
 
 ### Commits
 

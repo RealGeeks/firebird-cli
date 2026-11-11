@@ -1,0 +1,252 @@
+name: Release
+
+# release-please keeps a release PR open on main from the conventional
+# commits; merging it tags a version. The build matrix makes one archive per
+# platform with a read-only token (it runs every dependency's build script);
+# publish then attests their build provenance and attaches them to the
+# release, and verify-install runs the install scripts against it on each OS.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build assets for, e.g. v0.1.0"
+        required: true
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Settings come from release-please-config.json (no release-type input,
+      # which would ignore that file): it also bumps the tagged install-script
+      # URLs in the docs (extra-files, x-release-please-version markers).
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+
+  build:
+    name: Build ${{ matrix.settings.target }}
+    needs: release-please
+    if: ${{ always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ${{ matrix.settings.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          # Static musl builds run on any Linux, whatever its glibc
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            exe: .exe
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag_name }}
+      TARGET: ${{ matrix.settings.target }}
+      EXE: ${{ matrix.settings.exe }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+
+      - name: Install musl tools
+        if: contains(matrix.settings.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cargo-about
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          # pinned: it runs over every dependency to write the shipped license file
+          tool: cargo-about@0.9.2
+
+      - name: Build binary
+        shell: bash
+        run: |
+          if [[ "$TARGET" == *musl* ]]; then
+            # ring's C code compiles with musl-gcc on the native-arch runner
+            export "CC_${TARGET//-/_}=musl-gcc"
+          fi
+          cargo build --release --locked --target "$TARGET"
+
+      - name: Smoke test
+        shell: bash
+        run: '"target/$TARGET/release/firebird-cli$EXE" --version'
+
+      - name: Package
+        id: archive
+        shell: bash
+        run: |
+          NAME="firebird-cli-${TAG}-${TARGET}"
+          mkdir -p "dist/$NAME"
+          cp "target/$TARGET/release/firebird-cli$EXE" README.md LICENSE docs/GUIDE.md "dist/$NAME/"
+          cargo about generate --locked --fail about.hbs > "dist/$NAME/THIRD_PARTY_LICENSES.html"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ARCHIVE="$NAME.zip"
+            (cd dist && 7z a -tzip "../$ARCHIVE" "$NAME" >/dev/null)
+          else
+            ARCHIVE="$NAME.tar.gz"
+            tar -czf "$ARCHIVE" -C dist "$NAME"
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+          else
+            shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          fi
+          cat "$ARCHIVE.sha256"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the archive for publish
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.archive.outputs.archive }}
+          path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.archive }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Attest and publish
+    needs: [release-please, build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload the archives to the release
+      id-token: write # sign the provenance attestation
+      attestations: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload --clobber "$TAG" dist/* -R "$GITHUB_REPOSITORY"
+
+  verify-install:
+    name: Install on ${{ matrix.os }}
+    needs: [release-please, publish]
+    if: ${{ always() && needs.publish.result == 'success' }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          export FIREBIRD_CLI_INSTALL_DIR="$RUNNER_TEMP/bin"
+          # gh is installed and GH_TOKEN set here, so provenance must be checked
+          sh install.sh --version "$TAG" 2> "$RUNNER_TEMP/install.log" || { cat "$RUNNER_TEMP/install.log"; exit 1; }
+          cat "$RUNNER_TEMP/install.log"
+          grep -F "Build provenance verified" "$RUNNER_TEMP/install.log"
+          "$FIREBIRD_CLI_INSTALL_DIR/firebird-cli" --version | grep -F "${TAG#v}"
+
+      - name: install.sh piped (the documented curl | sh path)
+        if: runner.os != 'Windows'
+        run: |
+          # The flag forms that survive a pipe, since `| sh --version X` would
+          # hand the flag to sh and install nothing.
+          export FIREBIRD_CLI_INSTALL_DIR="$RUNNER_TEMP/bin-piped"
+          cat install.sh | sh -s -- --version "$TAG"
+          "$FIREBIRD_CLI_INSTALL_DIR/firebird-cli" --version | grep -F "${TAG#v}"
+
+          export FIREBIRD_CLI_INSTALL_DIR="$RUNNER_TEMP/bin-env"
+          cat install.sh | FIREBIRD_CLI_VERSION="$TAG" sh
+          "$FIREBIRD_CLI_INSTALL_DIR/firebird-cli" --version | grep -F "${TAG#v}"
+
+          cat install.sh | sh -s -- --help | grep -F 'FIREBIRD_CLI_VERSION'
+
+      - name: Linux binary runs on an older glibc and on Alpine
+        if: runner.os == 'Linux'
+        run: |
+          for image in debian:11 alpine:3; do
+            docker run --rm -v "$RUNNER_TEMP/bin:/b:ro" "$image" /b/firebird-cli --version
+          done
+
+      - name: Provenance verifies
+        if: runner.os == 'Linux'
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "firebird-cli-$TAG-x86_64-unknown-linux-musl.tar.gz" -D "$RUNNER_TEMP/dl"
+          gh attestation verify "$RUNNER_TEMP/dl/firebird-cli-$TAG-x86_64-unknown-linux-musl.tar.gz" -R "$GITHUB_REPOSITORY"
+
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:FIREBIRD_CLI_INSTALL_DIR = "$env:RUNNER_TEMP\bin"
+          # gh is installed and GH_TOKEN set here, so provenance must be checked
+          $log = ./install.ps1 -Version $env:TAG 6>&1 | Out-String
+          Write-Host $log
+          if ($log -notmatch 'Build provenance verified') { throw 'install.ps1 did not verify build provenance' }
+          $out = & "$env:FIREBIRD_CLI_INSTALL_DIR\firebird-cli.exe" --version
+          if ($out -notmatch [regex]::Escape($env:TAG.TrimStart('v'))) { throw "unexpected version: $out" }
+
+      - name: install.ps1 through iex (the documented irm | iex path)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # iex passes no arguments, so the version has to arrive in the
+          # environment or through a scriptblock.
+          $env:FIREBIRD_CLI_INSTALL_DIR = "$env:RUNNER_TEMP\bin-iex"
+          $env:FIREBIRD_CLI_VERSION = $env:TAG
+          Get-Content -Raw ./install.ps1 | Invoke-Expression
+          $out = & "$env:FIREBIRD_CLI_INSTALL_DIR\firebird-cli.exe" --version
+          if ($out -notmatch [regex]::Escape($env:TAG.TrimStart('v'))) { throw "unexpected version: $out" }
+
+          Remove-Item Env:FIREBIRD_CLI_VERSION
+          $env:FIREBIRD_CLI_INSTALL_DIR = "$env:RUNNER_TEMP\bin-block"
+          & ([scriptblock]::Create((Get-Content -Raw ./install.ps1))) -Version $env:TAG
+          $out = & "$env:FIREBIRD_CLI_INSTALL_DIR\firebird-cli.exe" --version
+          if ($out -notmatch [regex]::Escape($env:TAG.TrimStart('v'))) { throw "unexpected version: $out" }
