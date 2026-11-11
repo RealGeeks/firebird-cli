@@ -15,10 +15,22 @@ go through `firebird-cli api METHOD PATH` (§11). Where this guide shows the
 
 ## 1. Setup
 
-Build from source (there are no release binaries yet):
+Install a release:
 
 ```bash
-cargo install --path .        # from a checkout of the repository
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.sh | sh   # macOS, Linux  x-release-please-version
+irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 | iex   # Windows PowerShell  x-release-please-version
+```
+
+The scripts verify the release checksum and, with the GitHub CLI logged in,
+its build-provenance attestation; `firebird-cli --version` confirms it.
+`firebird-cli update` installs a newer release later (§13); nothing updates
+on its own. Releases are listed at
+<https://github.com/RealGeeks/firebird-cli/releases>. If none is listed yet,
+or to run unreleased code, build from a checkout of the repository instead:
+
+```bash
+cargo install --path .
 firebird-cli --version
 ```
 
@@ -452,8 +464,44 @@ firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 | 6    | Conflict (409), for example someone else holds a page's edit lock       |
 | 7    | Rate limited (429) after every retry                                    |
 | 8    | Network: the API could not be reached, timed out, or TLS failed         |
-| 9    | The API requires a newer firebird-cli (426)                             |
+| 9    | The API requires a newer firebird-cli (426): run `firebird-cli update`, then the command again (§13) |
 
 On exit 5 or 6, read `error.body` on stderr: it is the API's response and
 names what to fix. On exit 3 with `unauthorized`, the key is wrong or
 revoked: sign in again with a new one (§1).
+
+## 13. Updating firebird-cli
+
+```bash
+firebird-cli update                 # install the latest release over this binary
+firebird-cli update --check         # report only: {current_version, release_version, update_available}
+firebird-cli update --tag v0.1.0    # install that release; an older tag downgrades  x-release-please-version
+```
+
+- Nothing updates on its own: a script keeps the version it was written
+  against until something runs `firebird-cli update`.
+- `update --check` exits 0 whether or not a newer release exists; branch on
+  `update_available`. `update` prints the same document with `updated`.
+- Before the binary is replaced, the archive must match the sha256 published
+  beside it, and its build-provenance attestation must show it was built by
+  RealGeeks/firebird-cli's release workflow on `main` (the check
+  `gh attestation verify` makes; no `gh` needed). If either fails, nothing
+  is changed (exit 1).
+- The updater talks to GitHub with its own client. The site's API key and
+  token are never sent there.
+- When the repository has no release (exit 4), or none for this platform
+  (exit 1), nothing is changed.
+- A binary in a directory you cannot write (a root-owned `/usr/local/bin`)
+  fails before downloading; re-run with `sudo`, or reinstall elsewhere with
+  `FIREBIRD_CLI_INSTALL_DIR`.
+- On a terminal, any command says at most once a day when a newer release
+  exists. Piped output and CI never get that notice or its lookup;
+  `FIREBIRD_CLI_NO_UPDATE_CHECK=1` turns it off everywhere.
+
+| Variable                         | Meaning                                                   |
+| -------------------------------- | --------------------------------------------------------- |
+| `FIREBIRD_CLI_NO_UPDATE_CHECK=1` | Never look for or mention a newer release                 |
+| `FIREBIRD_CLI_SKIP_PROVENANCE=1` | Skip the attestation (a mirror without GitHub access); the sha256 is still checked, and a warning says so |
+| `FIREBIRD_CLI_REPO`              | Look for releases in a fork (`owner/name`), with a warning; its builds must still be attested by RealGeeks/firebird-cli |
+| `GH_TOKEN` / `GITHUB_TOKEN`      | Raises GitHub's limit on anonymous release lookups        |
+| `FIREBIRD_CLI_VERSION`, `FIREBIRD_CLI_INSTALL_DIR` | Read by the install scripts: the tag to install, and where |

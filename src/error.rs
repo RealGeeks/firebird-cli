@@ -82,7 +82,7 @@ impl Error {
                 ),
                 413 => Some("the request body is too large; keep JSON bodies small"),
                 426 => Some(
-                    "this firebird-cli is older than the API accepts; build a newer one, then run the command again",
+                    "this firebird-cli is older than the API accepts; run `firebird-cli update`, then run the command again",
                 ),
                 _ => None,
             },

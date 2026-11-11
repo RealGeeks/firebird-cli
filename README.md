@@ -22,9 +22,67 @@ firebird-cli draft validate about
 firebird-cli draft publish about --message "New headline"
 ```
 
-## Build from source
+## Install
 
-There are no release binaries yet. With a Rust toolchain (1.88 or newer):
+macOS and Linux:
+
+<!-- x-release-please-start-version -->
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 | iex
+```
+<!-- x-release-please-end -->
+
+These install a release from the
+[Releases page](https://github.com/RealGeeks/firebird-cli/releases). If that
+page lists no release yet, the first one has not been cut and the commands
+above have nothing to download: [build from source](#build-from-source)
+until it has.
+
+The scripts download the archive for your platform (macOS on Apple silicon
+and Intel, Linux x86_64 and arm64 as static binaries, Windows x86_64), check
+it against the `.sha256` published beside it and, when the
+[GitHub CLI](https://cli.github.com/) is installed and logged in, verify its
+build-provenance attestation; without `gh` they print the command to check
+it yourself. `install.sh` installs to `/usr/local/bin` if you can write
+there, else `~/.local/bin`; `install.ps1` to
+`%LOCALAPPDATA%\Programs\firebird-cli`, which it adds to your PATH.
+
+| Variable                         | Flag (`install.sh` / `install.ps1`) | Meaning                                    |
+| -------------------------------- | ----------------------------------- | ------------------------------------------ |
+| `FIREBIRD_CLI_VERSION`           | `--version` / `-Version`            | Install this tag instead of the latest     |
+| `FIREBIRD_CLI_INSTALL_DIR`       | `--dir` / `-InstallDir`             | Where the binary goes                      |
+| `FIREBIRD_CLI_SKIP_PROVENANCE=1` |                                     | Skip the attestation check (sha256 only)   |
+| `GH_TOKEN` / `GITHUB_TOKEN`      |                                     | Avoids GitHub's anonymous API rate limit   |
+
+Piped into `sh`, flags go after `-s --`:
+`curl … | sh -s -- --version v0.1.0`. <!-- x-release-please-version -->
+
+### Updating
+
+```bash
+firebird-cli update            # install the latest release over this binary
+firebird-cli update --check    # only report whether one is available
+firebird-cli update --tag v0.1.0   # x-release-please-version
+```
+
+`update` downloads the same archives as the install scripts, checks the
+sha256, and verifies the archive's build-provenance attestation itself (no
+`gh` needed) before replacing the binary: it must have been built by this
+repository's release workflow on `main`. Nothing updates on its own. On a
+terminal, a command mentions a newer release at most once a day;
+`FIREBIRD_CLI_NO_UPDATE_CHECK=1` turns that off, and piped output and CI
+never get it. The updater talks only to GitHub and is never given your site's
+API key or token.
+
+### Build from source
+
+With a Rust toolchain (1.88 or newer):
 
 ```bash
 git clone https://github.com/RealGeeks/firebird-cli
@@ -118,6 +176,7 @@ firebird-cli revisions list --type <resourceType> [--key <resourceKey>] [--chang
 
 firebird-cli api METHOD PATH [-p k=v]... [-d JSON | -d @file | -d -] [--no-auth]
 firebird-cli guide [topic] [--list]
+firebird-cli update [--check] [--tag vX.Y.Z]
 firebird-cli completions <shell>
 ```
 
@@ -186,7 +245,7 @@ version.
 | 6    | Conflict (409)                                                       |
 | 7    | Rate limited (429) after every retry                                 |
 | 8    | Network: the API could not be reached, timed out, or TLS failed      |
-| 9    | The API requires a newer firebird-cli (426)                          |
+| 9    | The API requires a newer firebird-cli (426): run `firebird-cli update` |
 
 ## Development
 
@@ -199,7 +258,9 @@ cargo fmt --check
 
 All four must pass clean. The tests run the binary against a mock API, so
 they need no Firebird site or key. See [AGENTS.md](AGENTS.md) for the layout
-and conventions.
+and conventions, [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests and how
+releases are made, and [SECURITY.md](SECURITY.md) to report a vulnerability
+or verify a download.
 
 ## License
 
