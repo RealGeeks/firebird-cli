@@ -111,6 +111,19 @@ impl Client {
         self.request(&Method::GET, path, query, None, true)
     }
 
+    /// POST, with a JSON body when the route takes one.
+    pub fn post(&self, path: &str, body: Option<&Value>) -> Result<ApiResponse> {
+        self.request(&Method::POST, path, &Query::new(), body, true)
+    }
+
+    pub fn patch(&self, path: &str, body: &Value) -> Result<ApiResponse> {
+        self.request(&Method::PATCH, path, &Query::new(), Some(body), true)
+    }
+
+    pub fn delete(&self, path: &str) -> Result<ApiResponse> {
+        self.request(&Method::DELETE, path, &Query::new(), None, true)
+    }
+
     /// Perform a request. With `auth`, it carries the bearer token; a 401
     /// means the token was not accepted, so it is thrown away and the request
     /// retried once with a newly exchanged one.

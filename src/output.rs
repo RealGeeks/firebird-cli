@@ -50,6 +50,31 @@ impl Printer {
         }
     }
 
+    /// Print one document. With `-q`, only the identifier at `id` (a JSON
+    /// pointer) is printed.
+    pub fn one(&self, value: &Value, id: &str) -> Result<()> {
+        if self.quiet {
+            let mut out = io::stdout().lock();
+            writeln!(out, "{}", value.pointer(id).map_or_else(String::new, cell))?;
+            return Ok(());
+        }
+        self.raw(value)
+    }
+
+    /// Print a document that wraps a list (`{items, total}`): unchanged as
+    /// JSON, and as the list at `pointer` for a table, `-q` or JSONL.
+    pub fn wrapped(&self, value: &Value, pointer: &str, columns: &[Column]) -> Result<()> {
+        if !self.quiet && self.format == Format::Json {
+            return print_json(value);
+        }
+        let items = value
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        self.list(&items, columns)
+    }
+
     /// Print a free-form JSON document (the `me` summary, a raw call).
     pub fn raw(&self, value: &Value) -> Result<()> {
         match self.format {
@@ -204,6 +229,43 @@ fn extra_fields(body: &Value) -> Vec<(&String, &Value)> {
         .unwrap_or_default()
 }
 
+/// The blocks that stop a draft being published, one line each, from the
+/// `errors` list that `draft validate` and a refused publish both return.
+/// `None` when `errors` is not that list.
+pub fn publish_error_lines(errors: &Value) -> Option<Vec<String>> {
+    let text = |value: &Value, key: &str| value.get(key).map(cell).unwrap_or_default();
+    let mut lines = Vec::new();
+    for page in errors.as_array()? {
+        let blocks = page.get("blockErrors")?.as_array()?;
+        lines.push(format!(
+            "{} (draft {}):",
+            text(page, "pageTitle"),
+            text(page, "draftPageUuid")
+        ));
+        for block in blocks {
+            let name = format!(
+                "{} [{}]",
+                text(block, "blockLabel"),
+                text(block, "blockInstanceUuid")
+            );
+            let fields = block.get("fieldErrors").and_then(Value::as_array);
+            for field in fields.into_iter().flatten() {
+                lines.push(format!(
+                    "  {name}: {} ({}): {}",
+                    text(field, "fieldLabel"),
+                    text(field, "fieldKey"),
+                    text(field, "message")
+                ));
+            }
+            let whole = block.get("blockErrors").and_then(Value::as_array);
+            for message in whole.into_iter().flatten() {
+                lines.push(format!("  {name}: {}", cell(message)));
+            }
+        }
+    }
+    Some(lines)
+}
+
 /// The error as the JSON document printed on stderr in JSON mode.
 pub fn error_document(err: &Error) -> Value {
     let mut doc = serde_json::Map::new();
@@ -232,7 +294,13 @@ pub fn print_error(err: &Error, format: Format) {
         Format::Table => {
             eprintln!("error: {}", sanitize(&err.to_string()));
             for (name, value) in err.body().map(extra_fields).unwrap_or_default() {
-                eprintln!("  {}: {}", sanitize(name), sanitize(&value.to_string()));
+                match (name == "errors")
+                    .then(|| publish_error_lines(value))
+                    .flatten()
+                {
+                    Some(lines) => lines.iter().for_each(|line| eprintln!("  {line}")),
+                    None => eprintln!("  {}: {}", sanitize(name), sanitize(&value.to_string())),
+                }
             }
             if let Some(retry) = err.retry_after() {
                 eprintln!("  retry after {retry}s");
@@ -289,6 +357,31 @@ mod tests {
         let out = truncate(&long);
         assert!(out.ends_with('…'));
         assert!(out.chars().count() <= 121);
+    }
+
+    #[test]
+    fn publish_errors_read_one_line_per_problem() {
+        let errors = json!([{
+            "draftPageUuid": "d1",
+            "pageTitle": "About",
+            "blockErrors": [{
+                "blockInstanceUuid": "b1",
+                "blockLabel": "Hero\u{1b}[2J",
+                "fieldErrors": [{"fieldKey": "title", "fieldLabel": "Title", "message": "Required"}],
+                "blockErrors": ["Needs at least one agent"],
+            }],
+        }]);
+        assert_eq!(
+            publish_error_lines(&errors),
+            Some(vec![
+                "About (draft d1):".to_string(),
+                "  Hero[2J [b1]: Title (title): Required".to_string(),
+                "  Hero[2J [b1]: Needs at least one agent".to_string(),
+            ])
+        );
+        assert_eq!(publish_error_lines(&json!([])), Some(Vec::new()));
+        assert_eq!(publish_error_lines(&json!([{"path": "title"}])), None);
+        assert_eq!(publish_error_lines(&json!("nope")), None);
     }
 
     #[test]

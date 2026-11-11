@@ -2,12 +2,10 @@
 
 use clap::{Args, Subcommand};
 
-use super::{items, segment, Context};
+use super::{find_page, items, page_path, Context, PAGES};
 use crate::client::Query;
 use crate::error::Result;
 use crate::output::{cell, col, Column, Format};
-
-pub const PATH: &str = "pages";
 
 pub const COLUMNS: &[Column] = &[
     col("pageUuid", "/pageUuid"),
@@ -25,6 +23,10 @@ pub const BLOCK_COLUMNS: &[Column] = &[
     col("data", "/data"),
 ];
 
+/// What `<page>` accepts, for `--help`.
+pub const PAGE_HELP: &str =
+    "The page: its uuid, or its slug (about, /about/; / or home for the home page)";
+
 #[derive(Debug, Args)]
 pub struct PagesCommand {
     #[command(subcommand)]
@@ -35,38 +37,44 @@ pub struct PagesCommand {
 pub enum PagesSub {
     /// List the site's pages (`GET /pages`)
     List,
+    /// Show one page's settings: slug, status, meta title and description
+    #[command(after_help = "Notes:
+  - The API has no route for one page's settings, so this reads `GET /pages` and picks the page out of it.
+  - An unknown page is exit 4, with the site's slugs in the message.")]
+    Get {
+        #[arg(value_name = "PAGE", help = PAGE_HELP)]
+        page: String,
+    },
     /// Show a page's blocks (`GET /pages/{pageUuid}/content`)
     #[command(after_help = "Notes:
-  - The result is {initialEditorMode, blocks}. The blocks are the page as the key's user would open it in the editor.
+  - The result is {initialEditorMode, blocks}: the page as the key's user would open it in the editor. While the page has a draft that this user may edit, these are the draft's blocks, under the draft's ids.
   - A table shortens each block's data; use `-o json` for all of it, and `-q` for just the block instance uuids.
-  - Draft blocks have different uuids from live ones; see `firebird-cli guide drafts`.")]
+  - See `firebird-cli guide drafts` for how live and draft block ids relate.")]
     Content {
-        /// The page's uuid, from `pages list`
-        #[arg(value_name = "PAGE_UUID")]
-        page_uuid: String,
+        #[arg(value_name = "PAGE", help = PAGE_HELP)]
+        page: String,
     },
 }
 
 pub fn run(ctx: &Context, cmd: &PagesCommand) -> Result<()> {
     match &cmd.command {
         PagesSub::List => {
-            let response = ctx.client.get(PATH, &Query::new())?;
+            let response = ctx.client.get(PAGES, &Query::new())?;
             ctx.printer.list(&items(&response.body), COLUMNS)
         }
-        PagesSub::Content { page_uuid } => {
-            let page = segment("the page uuid", page_uuid)?;
-            let body = ctx
-                .client
-                .get(&format!("{PATH}/{page}/content"), &Query::new())?
-                .body;
-            if !ctx.printer.quiet && ctx.printer.format != Format::Table {
-                return ctx.printer.raw(&body);
-            }
+        PagesSub::Get { page } => {
+            let pages = items(&ctx.client.get(PAGES, &Query::new())?.body);
+            ctx.printer.one(&find_page(&pages, page)?, "/pageUuid")
+        }
+        PagesSub::Content { page } => {
+            let path = format!("{}/content", page_path(ctx, page)?);
+            let body = ctx.client.get(&path, &Query::new())?.body;
             if let Some(mode) = body.pointer("/initialEditorMode/mode") {
-                ctx.printer.note(&format!("editor mode: {}", cell(mode)));
+                if ctx.printer.format == Format::Table {
+                    ctx.printer.note(&format!("editor mode: {}", cell(mode)));
+                }
             }
-            let blocks = body.get("blocks").map(items).unwrap_or_default();
-            ctx.printer.list(&blocks, BLOCK_COLUMNS)
+            ctx.printer.wrapped(&body, "/blocks", BLOCK_COLUMNS)
         }
     }
 }

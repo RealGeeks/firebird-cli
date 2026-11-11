@@ -87,6 +87,7 @@ pub fn run(env: &mut AuthEnv<'_>, cmd: AuthCommand) -> Result<()> {
                 client,
                 printer: env.printer,
                 site: target.site,
+                yes: false,
             })
         }
         AuthSub::Sites => sites(env),

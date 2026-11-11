@@ -5,7 +5,9 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::client::Client;
-use crate::commands::{api, auth, blocks, guide, pages, Context};
+use crate::commands::{
+    api, auth, blocks, draft, guide, media, nav, pages, revisions, settings, versions, Context,
+};
 use crate::config::{self, Config, Overrides};
 use crate::error::Result;
 use crate::output::{Format, Printer};
@@ -14,6 +16,10 @@ const ABOUT: &str = "The Firebird command line: read and edit a Firebird website
 const AFTER_HELP: &str = "\
 Start with `firebird-cli auth login --site www.example.com --api-key-stdin`
 (a key from the site's Integrations page), then `firebird-cli me`.
+
+A <page> is its uuid or its slug (about, /about/; / or home for the home page).
+Block edits go into the page's draft: `blocks patch about <block> --set title=Hi`,
+then `draft validate about` and `draft publish about`. Nothing is live before that.
 
 `firebird-cli guide` is the walkthrough for scripts and AI agents; `guide --list`
 shows its topics and `guide <topic>` prints one, e.g. `guide drafts` (what is
@@ -57,6 +63,9 @@ pub struct Global {
     /// Print only identifiers, one per line
     #[arg(short = 'q', long, global = true)]
     pub quiet: bool,
+    /// Skip the confirmation before a publish, discard, remove or restore
+    #[arg(short = 'y', long, global = true)]
+    pub yes: bool,
     /// Log requests to stderr (method, URL and status; never a key or token)
     #[arg(short = 'v', long, global = true)]
     pub verbose: bool,
@@ -104,8 +113,28 @@ pub enum Command {
     Me,
     /// Pages and the blocks on them
     Pages(pages::PagesCommand),
-    /// Block types and their schemas
+    /// Block types, and adding, changing, moving and removing a page's blocks
     Blocks(blocks::BlocksCommand),
+    /// A page's unpublished changes: status, validate, publish, discard
+    Draft(draft::DraftCommand),
+    /// A page's published versions
+    Versions(versions::VersionsCommand),
+    /// Navigation bars and the sections a link can point at (read only)
+    Nav(nav::NavCommand),
+    /// The theme: colours, fonts, radii, spacing (read only)
+    Styling(settings::StylingCommand),
+    /// The site footer (read only)
+    Footer(settings::FooterCommand),
+    /// Page headers (read only)
+    Headers(settings::HeadersCommand),
+    /// Social media links (read only)
+    Social(settings::SocialCommand),
+    /// Featured areas (read only)
+    Areas(settings::AreasCommand),
+    /// The media library (read only)
+    Media(media::MediaCommand),
+    /// The history of the theme, navigation, footer, headers and social links (read only)
+    Revisions(revisions::RevisionsCommand),
     /// Call any API endpoint directly
     Api(api::ApiArgs),
     /// The usage guide for scripts and AI agents, whole or one topic (`guide drafts`)
@@ -172,11 +201,22 @@ pub fn run(cli: Cli) -> Result<()> {
                 client,
                 printer,
                 site: target.site,
+                yes: cli.global.yes,
             };
             match command {
                 Command::Me => auth::status(&ctx),
                 Command::Pages(cmd) => pages::run(&ctx, &cmd),
                 Command::Blocks(cmd) => blocks::run(&ctx, &cmd),
+                Command::Draft(cmd) => draft::run(&ctx, &cmd),
+                Command::Versions(cmd) => versions::run(&ctx, &cmd),
+                Command::Nav(cmd) => nav::run(&ctx, &cmd),
+                Command::Styling(cmd) => settings::styling(&ctx, &cmd),
+                Command::Footer(cmd) => settings::footer(&ctx, &cmd),
+                Command::Headers(cmd) => settings::headers(&ctx, &cmd),
+                Command::Social(cmd) => settings::social(&ctx, &cmd),
+                Command::Areas(cmd) => settings::areas(&ctx, &cmd),
+                Command::Media(cmd) => media::run(&ctx, &cmd),
+                Command::Revisions(cmd) => revisions::run(&ctx, &cmd),
                 Command::Api(args) => api::run(&ctx, &args),
                 Command::Guide(_) | Command::Completions { .. } | Command::Auth(_) => Ok(()),
             }
