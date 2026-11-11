@@ -62,6 +62,11 @@ pub enum Error {
 
     #[error("{0}")]
     Other(String),
+
+    /// `draft validate` found errors. Raised after the result was printed,
+    /// so the document on stdout says what they are.
+    #[error("{0}")]
+    Invalid(String),
 }
 
 impl Error {
@@ -94,6 +99,7 @@ impl Error {
             Error::Config(_) | Error::NotLoggedIn(_) => exit::AUTH,
             Error::Api { status, .. } => api_exit_code(*status),
             Error::Network(_) => exit::NETWORK,
+            Error::Invalid(_) => exit::VALIDATION,
             Error::Io(_) | Error::Other(_) => exit::GENERAL,
             Error::BrokenPipe => exit::OK,
         }
@@ -110,6 +116,7 @@ impl Error {
             Error::Io(_) => "io",
             Error::BrokenPipe => "broken_pipe",
             Error::Other(_) => "error",
+            Error::Invalid(_) => "draft_invalid",
         }
     }
 

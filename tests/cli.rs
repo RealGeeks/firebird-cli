@@ -492,7 +492,7 @@ fn read_commands_call_their_routes() -> TestResult {
         .create();
     let content = env
         .server
-        .mock("GET", "/pages/p1/content")
+        .mock("GET", "/pages/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/content")
         .with_body(
             r#"{"initialEditorMode":{"mode":"live","pageUuid":"p1"},"blocks":[{"blockInstanceUuid":"b1","codeName":"hero","sortOrder":0,"data":{"title":"Hi"}}]}"#,
         )
@@ -527,19 +527,30 @@ fn read_commands_call_their_routes() -> TestResult {
 
     let out = env
         .cmd()?
-        .args(["pages", "content", "p1"])
+        .args(["pages", "content", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"])
         .assert()
         .success();
     let page = parse(&out.get_output().stdout)?;
     assert_eq!(page["initialEditorMode"]["mode"], "live");
     assert_eq!(page["blocks"][0]["data"]["title"], "Hi");
     env.cmd()?
-        .args(["pages", "content", "p1", "-q"])
+        .args([
+            "pages",
+            "content",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "-q",
+        ])
         .assert()
         .success()
         .stdout("b1\n");
     env.cmd()?
-        .args(["pages", "content", "p1", "-o", "table"])
+        .args([
+            "pages",
+            "content",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "-o",
+            "table",
+        ])
         .assert()
         .success()
         .stderr(predicate::str::contains("editor mode: live"))

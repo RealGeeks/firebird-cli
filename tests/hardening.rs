@@ -437,19 +437,46 @@ fn its_own_config_and_token_files_are_never_a_body() -> TestResult {
 fn an_identifier_cannot_change_the_path() -> TestResult {
     let mut env = Env::new()?;
     env.seed_token(&jwt("path", 900));
-    let nothing = env.server.mock("GET", Matcher::Any).expect(0).create();
-    for bad in ["../drafts/summaries", "p1/draft", "p1?x=1", "%2e%2e"] {
+    // a page that is not a uuid is only ever looked up in the list of pages
+    let pages = env
+        .server
+        .mock("GET", "/pages")
+        .with_body(r#"[{"pageUuid":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","slug":"about"}]"#)
+        .expect(4)
+        .create();
+    let nothing_else = env
+        .server
+        .mock("GET", Matcher::Regex("^/pages/.+".into()))
+        .expect(0)
+        .create();
+    for bad in ["../drafts/summaries", "about/draft", "about?x=1", "%2e%2e"] {
         env.cmd()?
             .args(["pages", "content", bad])
             .assert()
-            .code(2)
-            .stderr(predicate::str::contains("the page uuid must be"));
+            .code(4)
+            .stderr(predicate::str::contains("no page"));
     }
-    env.cmd()?
-        .args(["blocks", "schema", "hero/../../pages"])
-        .assert()
-        .code(2);
-    nothing.assert();
+    pages.assert();
+    nothing_else.assert();
+
+    let no_write = env.server.mock("PATCH", Matcher::Any).expect(0).create();
+    let page = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    for bad in ["../../drafts/publish", "b1/data", "b1?x=1"] {
+        env.cmd()?
+            .args(["blocks", "patch", page, bad, "--set", "title=x"])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("the block uuid must be"));
+    }
+    no_write.assert();
+    for (group, bad) in [
+        ("blocks", vec!["schema", "hero/../../pages"]),
+        ("headers", vec!["get", "h1/../../pages"]),
+        ("media", vec!["get", "../pages"]),
+        ("revisions", vec!["get", "r1/restore"]),
+    ] {
+        env.cmd()?.arg(group).args(bad).assert().code(2);
+    }
     Ok(())
 }
 

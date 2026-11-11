@@ -5,18 +5,21 @@ through the Firebird API. It is built to be driven by scripts and AI agents as
 much as by people: JSON on stdout when piped, JSON errors on stderr, stable
 exit codes, and a built-in guide written for agents.
 
-**Status:** pre-1.0, phase 1. What exists today is signing in with an API
-key, four read commands (pages, a page's blocks, block types, a block type's
-schema), a raw `api` command that reaches every other endpoint, and the
-guide. Dedicated commands for editing, publishing, settings and media are
-planned; until then they go through `firebird-cli api`. Expect breaking
-changes.
+**Status:** pre-1.0. What exists today: signing in with an API key; reading
+pages, blocks, drafts, versions, navigation, theme, footer, headers, social
+links, areas, media and revisions; and editing a page's draft (add, patch,
+move, duplicate, remove and reorder blocks, then validate, publish or
+discard). Changing the live settings, restoring a revision and uploading
+media have no command yet and go through the raw `firebird-cli api`. Expect
+breaking changes.
 
 ```bash
 pbpaste | firebird-cli auth login --site www.example.com --api-key-stdin
 firebird-cli me
-firebird-cli pages list
-firebird-cli pages content <pageUuid>
+firebird-cli pages content about
+firebird-cli blocks patch about <block> --set title="Welcome home"
+firebird-cli draft validate about
+firebird-cli draft publish about --message "New headline"
 ```
 
 ## Build from source
@@ -89,18 +92,62 @@ stored.
 firebird-cli auth login --site <domain> [--api-key-stdin | --api-key <KEY>] [--base-url URL]
 firebird-cli auth logout | status | sites | use <domain>
 firebird-cli me
-firebird-cli pages list
-firebird-cli pages content <pageUuid>
-firebird-cli blocks types
-firebird-cli blocks schema <codeName>
+
+firebird-cli pages list | get <page> | content <page>
+firebird-cli blocks types | schema <codeName>
+firebird-cli blocks add <page> <codeName> [--position N] [--data JSON|@file|-] [--set k=v]...
+firebird-cli blocks patch <page> <block> [--data JSON|@file|-] [--set k=v]...
+firebird-cli blocks move <page> <block> up|down|top|bottom
+firebird-cli blocks duplicate <page> <block>
+firebird-cli blocks remove <page> <block>
+firebird-cli blocks order <page> <block>...
+firebird-cli draft list | status <page> | validate <page> | discard <page>
+firebird-cli draft publish <page> [--message TEXT]
+firebird-cli versions list <page> | get <page> <n> | restore <page> <n>
+
+firebird-cli nav get [--nav-bar UUID | --page <page>] | anchors <page>
+firebird-cli styling get | fonts
+firebird-cli footer get
+firebird-cli headers list | get <headerUuid>
+firebird-cli social get
+firebird-cli areas list
+firebird-cli media list [--query TEXT] [--tags a,b] [--media-type T] [--asset-role R]
+                        [--orientation O] [--limit N] [--offset N] | get <mediaUuid>
+firebird-cli revisions list --type <resourceType> [--key <resourceKey>] [--change-set UUID]
+                            [--cursor N] [--limit N] | get <revisionUuid>
+
 firebird-cli api METHOD PATH [-p k=v]... [-d JSON | -d @file | -d -] [--no-auth]
 firebird-cli guide [topic] [--list]
 firebird-cli completions <shell>
 ```
 
+`<page>` is a page's uuid or its slug: `about`, `/about/`, and `/` or `home`
+for the home page. `<block>` is a block's uuid, live or draft.
+
 Global options: `-o json|jsonl|table` (or `--json`), `-q` for identifiers
-only, `-v` to log requests, `--max-retries N` for 429s. Every command has
-`--help`.
+only, `-y` to skip a confirmation, `-v` to log requests, `--max-retries N`
+for 429s. Every command has `--help`.
+
+Editing works on a page's draft; visitors see nothing until it is published:
+
+```bash
+firebird-cli blocks schema info                       # the fields a block type takes
+firebird-cli blocks add about info --set title="Our story"
+firebird-cli blocks patch about $BLOCK --set button.text=Go --set subtitle=null
+firebird-cli draft validate about                     # exit 5 if it cannot be published
+firebird-cli draft publish about -y --message "Add our story"
+firebird-cli draft discard about -y                   # or throw the draft away
+```
+
+- `blocks patch` sends a merge patch: only the fields given change. `--set`
+  values are JSON when they parse as JSON and text otherwise, dotted keys
+  nest, and `--set` wins over the same field in `--data`.
+- `draft publish`, `draft discard`, `blocks remove` and `versions restore`
+  ask for confirmation on a terminal; `-y` skips the question. A script or
+  agent (no terminal) is not asked and the command runs.
+- A block write the API refuses can still leave a new draft and the page's
+  edit lock behind; `draft status <page>` shows it and `draft discard`
+  removes it.
 
 Output is the API's JSON unchanged when piped, and a table on a terminal.
 Errors are one JSON line on stderr in JSON mode, with the API's whole error
@@ -110,12 +157,13 @@ response under `error.body`:
 {"error":{"code":"not_found","message":"Page not found","status":404,"body":{"error":"Page not found"},"exit_code":4}}
 ```
 
-`api` calls any endpoint with the stored key. `-d @file` refuses hidden files
-and credential folders, because what it reads is sent to the API:
+`api` calls any endpoint with the stored key, for what has no command yet.
+`-d @file` refuses hidden files and credential folders, because what it
+reads is sent to the API:
 
 ```bash
-firebird-cli api GET /pages
-firebird-cli api PATCH /pages/$PAGE/blocks/$BLOCK/data -d '{"data":{"title":"Welcome home"}}'
+firebird-cli api PUT /footer -d @footer.json
+firebird-cli api POST /revisions/$REVISION/restore
 firebird-cli api GET /healthz/ready --no-auth
 ```
 
@@ -131,10 +179,10 @@ version.
 | ---- | -------------------------------------------------------------------- |
 | 0    | Success                                                              |
 | 1    | Any other failure, including a 5xx from the API                      |
-| 2    | Usage: bad flags or arguments, invalid JSON, a refused file or URL   |
+| 2    | Usage: bad flags or arguments, invalid JSON, a refused file or URL, a confirmation not given |
 | 3    | Authentication: no key, a refused key (401), or not allowed (403)    |
 | 4    | Not found (404)                                                      |
-| 5    | Validation: the API refused the request (400, 413, 415, 422)         |
+| 5    | Validation: the API refused the request (400, 413, 415, 422), or `draft validate` found errors |
 | 6    | Conflict (409)                                                       |
 | 7    | Rate limited (429) after every retry                                 |
 | 8    | Network: the API could not be reached, timed out, or TLS failed      |
