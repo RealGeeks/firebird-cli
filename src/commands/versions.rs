@@ -44,7 +44,7 @@ pub enum VersionsSub {
     /// Replace the page's draft with a published version (`POST …/versions/{n}/restore`)
     #[command(after_help = "Notes:
   - The whole draft is replaced by that version, so any unpublished change on the page is lost. The live page does not change: the result is a draft, and `draft publish` makes it live.
-  - Asks first on a terminal; anywhere else it needs -y.
+  - Asks first on a terminal (-y skips the question); a script or agent is not asked.
   - 409 (exit 6) means someone else holds the page's edit lock.")]
     Restore {
         #[arg(value_name = "PAGE", help = PAGE_HELP)]

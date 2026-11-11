@@ -124,7 +124,7 @@ that includes it. The CLI uses the system certificate store.
 - `-y` (`--yes`) answers the confirmation that `draft publish`,
   `draft discard`, `blocks remove` and `versions restore` ask for. On a
   terminal they ask `[y/N]`. Anywhere else (a script, an agent, a pipe) they
-  refuse without `-y`: exit 2, nothing sent, and a message naming `-y`.
+  run without asking, so only run them for what you were asked to do.
 - A 429 is retried up to `--max-retries` times (default 3), waiting as
   `Retry-After` says, with a `rate limited; retrying in Ns` line on stderr.
 - Text from the API is stripped of control characters before it reaches a

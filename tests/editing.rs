@@ -538,35 +538,18 @@ fn blocks_move_duplicate_and_order_call_their_routes() -> TestResult {
 // --- confirmation ----------------------------------------------------------------
 
 #[test]
-fn destructive_commands_refuse_without_yes_when_no_one_can_answer() -> TestResult {
+fn destructive_commands_run_unasked_when_no_one_is_at_the_keyboard() -> TestResult {
     let mut env = Env::new()?;
-    let nothing_posted = env.server.mock("POST", Matcher::Any).expect(0).create();
-    let nothing_deleted = env.server.mock("DELETE", Matcher::Any).expect(0).create();
-
-    for args in [
-        vec!["blocks", "remove", ABOUT, BLOCK],
-        vec!["draft", "publish", ABOUT],
-        vec!["draft", "publish", ABOUT, "--message", "Go live"],
-        vec!["draft", "discard", ABOUT],
-        vec!["versions", "restore", ABOUT, "3"],
-    ] {
-        let error = env.error(&args, 2)?;
-        assert_eq!(error["code"], "usage", "{args:?}");
-        assert!(
-            error["message"]
-                .as_str()
-                .is_some_and(|m| m.starts_with("refusing to") && m.contains("pass -y")),
-            "{args:?}: {error}"
-        );
-    }
-    // an answer piped in is not someone at the keyboard
-    env.cmd()?
-        .args(["draft", "discard", ABOUT])
-        .write_stdin("y\n")
-        .assert()
-        .code(2);
-    nothing_posted.assert();
-    nothing_deleted.assert();
+    let discarded = env.write(
+        "POST",
+        &format!("/pages/{ABOUT}/draft/discard"),
+        None,
+        200,
+        &json!({"ok": true}),
+    );
+    // no -y and no terminal: a script or agent is not asked, as in geekcli
+    assert_eq!(env.json(&["draft", "discard", ABOUT])?, json!({"ok": true}));
+    discarded.assert();
     Ok(())
 }
 

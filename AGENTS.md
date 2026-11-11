@@ -53,8 +53,8 @@ The rules that keep a live site safe:
    fields you are changing.
 6. `draft validate <page>` before publishing; exit 5 means it has errors.
 7. `draft publish`, `draft discard`, `blocks remove` and `versions restore`
-   refuse without `-y` when no one is at the keyboard. Pass `-y` only for
-   what you were asked to do.
+   run without asking when no one is at the keyboard; only a terminal gets a
+   prompt. Run them only for what you were asked to do.
 8. A non-zero exit means the change did not go through as asked. A refused
    block write can still leave a new draft and the page's edit lock: check
    `draft status <page>`, and `draft discard <page> -y` if you did not mean
@@ -154,8 +154,7 @@ docs/GUIDE.md          # agent-facing guide, embedded via include_str!; `guide <
   the route.
 - A command that publishes, discards or removes calls `commands::confirm`
   after its arguments are resolved and before the request: `-y` passes, a
-  terminal is asked, and anything else is refused with exit 2. (geekcli
-  proceeds without asking when there is no terminal; firebird-cli does not.)
+  terminal is asked, and a caller with no terminal proceeds, as in geekcli.
 - A command that changes the live site at once needs the same care. None
   exists yet; when one is added, say so in its `--help` and the guide.
 - Files holding secrets are written with `config::write_private_file`.

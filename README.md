@@ -143,8 +143,8 @@ firebird-cli draft discard about -y                   # or throw the draft away
   values are JSON when they parse as JSON and text otherwise, dotted keys
   nest, and `--set` wins over the same field in `--data`.
 - `draft publish`, `draft discard`, `blocks remove` and `versions restore`
-  ask for confirmation on a terminal. Without a terminal they refuse (exit 2)
-  unless `-y` is given.
+  ask for confirmation on a terminal; `-y` skips the question. A script or
+  agent (no terminal) is not asked and the command runs.
 - A block write the API refuses can still leave a new draft and the page's
   edit lock behind; `draft status <page>` shows it and `draft discard`
   removes it.

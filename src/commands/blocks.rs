@@ -135,7 +135,7 @@ pub enum BlocksSub {
     },
     /// Remove a block from a page's draft (`DELETE …/blocks/{uuid}`)
     #[command(after_help = format!("Notes:
-  - Asks first on a terminal; anywhere else it needs -y.
+  - Asks first on a terminal (-y skips the question); a script or agent is not asked.
 {DRAFT_NOTES}"))]
     Remove {
         #[arg(value_name = "PAGE", help = PAGE_HELP)]

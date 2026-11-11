@@ -66,7 +66,7 @@ pub enum DraftSub {
     /// Make a page's draft live (`POST /pages/{pageUuid}/draft/publish`)
     #[command(after_help = "Notes:
   - Visitors see the change as soon as this returns. Publish only when you were asked to.
-  - Asks first on a terminal; anywhere else it needs -y.
+  - Asks first on a terminal (-y skips the question); a script or agent is not asked.
   - Run `draft validate <page>` first. A draft with errors is a 422 (exit 5) listing them; 403 (exit 3) means the site's owner handles publishing; 409 (exit 6) means someone else holds a page's edit lock, named under `lockedPages`.
   - The result lists what was published, with the `versionNumber` to give `versions restore` to go back.
   - Without --message the API writes a summary of the changes for the version history.")]
@@ -80,7 +80,7 @@ pub enum DraftSub {
     /// Throw away a page's draft (`POST /pages/{pageUuid}/draft/discard`)
     #[command(after_help = "Notes:
   - Every unpublished change on the page is lost, other people's included. There is no undo.
-  - Asks first on a terminal; anywhere else it needs -y.
+  - Asks first on a terminal (-y skips the question); a script or agent is not asked.
   - A page with no draft is not an error: the result is {\"ok\": true} either way.
   - 409 (exit 6) means someone else holds the page's edit lock.")]
     Discard {

@@ -211,17 +211,12 @@ fn set_path(object: &mut Map<String, Value>, path: &str, value: Value) {
     }
 }
 
-/// Ask before something that cannot simply be taken back. `-y` skips the
-/// question; without it, a run with no one at the keyboard is refused rather
-/// than assumed to mean yes.
+/// Ask before something that cannot simply be taken back, when a human is
+/// at the keyboard. `-y` skips the question, and non-interactive callers
+/// (agents, scripts) proceed without one, as in geekcli.
 pub fn confirm(ctx: &Context, action: &str) -> Result<()> {
-    if ctx.yes {
+    if ctx.yes || !io::stdin().is_terminal() {
         return Ok(());
-    }
-    if !io::stdin().is_terminal() {
-        return Err(Error::Usage(format!(
-            "refusing to {action} without confirmation; pass -y (--yes) to do it"
-        )));
     }
     eprint!("{}? [y/N] ", capitalize(action));
     io::stderr().flush()?;
