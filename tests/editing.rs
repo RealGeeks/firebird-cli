@@ -843,57 +843,438 @@ fn versions_list_and_get_read_their_routes() -> TestResult {
     Ok(())
 }
 
-// --- settings, media and revisions (read only) ------------------------------------------
+// --- navigation, and settings, media and revisions (read only) ------------------------------------------
 
-#[test]
-fn nav_get_reads_the_default_bar_a_named_bar_or_a_pages_bar() -> TestResult {
-    let mut env = Env::new()?;
-    let default = json!({
-        "navBarUuid": OTHER,
-        "items": [{"navItemUuid": BLOCK, "label": "Listings"}],
+/// `GET /navigation`: the bars, without their items.
+fn nav_bars() -> Value {
+    json!({
+        "defaultNavBarUuid": OTHER,
         "navBars": [
             {"navBarUuid": DRAFT_PAGE, "name": "Home bar", "isSiteDefault": false, "pageUuids": [HOME]},
             {"navBarUuid": OTHER, "name": "Site default", "isSiteDefault": true, "pageUuids": []},
         ],
-    });
-    let home_bar = json!({
+    })
+}
+
+/// `GET /navigation/{navBarUuid}` for the home page's own bar: a link, and a
+/// dropdown holding two more.
+fn home_bar() -> Value {
+    json!({
         "navBarUuid": DRAFT_PAGE,
-        "items": [{"navItemUuid": DRAFT_BLOCK, "label": "Home"}],
-        "navBars": default["navBars"],
-    });
-    // newest mock first: the one with the query, then the bare route
-    let bare = env
+        "name": "Home bar",
+        "isSiteDefault": false,
+        "pageUuids": [HOME],
+        "items": [
+            {"key": BLOCK, "navItemUuid": BLOCK, "label": "About", "linkType": "customPage",
+             "customPageUuid": ABOUT, "pageSlug": "about", "pageStatus": "active"},
+            {"key": DRAFT_BLOCK, "navItemUuid": DRAFT_BLOCK, "label": "More", "linkType": "folder", "children": [
+                {"key": HOME, "navItemUuid": HOME, "label": "Search", "linkType": "standardPage",
+                 "standardPageUuid": OTHER, "standardPagePath": "/search"},
+                {"key": ABOUT, "navItemUuid": ABOUT, "label": "Blog", "linkType": "externalUrl",
+                 "externalUrl": "https://blog.example.com"},
+            ]},
+        ],
+    })
+}
+
+fn default_bar() -> Value {
+    json!({
+        "navBarUuid": OTHER,
+        "name": "Site default",
+        "isSiteDefault": true,
+        "pageUuids": [],
+        "items": [{"key": BLOCK, "navItemUuid": BLOCK, "label": "Listings", "linkType": "standardPage",
+                   "standardPageUuid": OTHER, "standardPagePath": "/search"}],
+    })
+}
+
+fn nav_saved(revision: &Value) -> Value {
+    json!({"navBarUuid": DRAFT_PAGE, "revisionUuid": revision})
+}
+
+#[test]
+fn nav_list_shows_the_bars_without_a_query() -> TestResult {
+    let mut env = Env::new()?;
+    let listed = env
         .server
         .mock("GET", "/navigation")
         .match_query(Matcher::Missing)
-        .with_body(default.to_string())
+        .with_body(nav_bars().to_string())
+        .expect(3)
+        .create();
+    assert_eq!(env.json(&["nav", "list"])?, nav_bars());
+    assert_eq!(
+        env.text(&["nav", "list", "-q"])?,
+        format!("{DRAFT_PAGE}\n{OTHER}\n")
+    );
+    let table = env.text(&["nav", "list", "-o", "table"])?;
+    for shown in ["isSiteDefault", "pageUuids", "Home bar", HOME] {
+        assert!(table.contains(shown), "{shown} in {table}");
+    }
+    listed.assert();
+    Ok(())
+}
+
+#[test]
+fn nav_get_reads_the_default_bar_a_named_bar_or_a_pages_bar() -> TestResult {
+    let mut env = Env::new()?;
+    let default = env
+        .server
+        .mock("GET", "/navigation/default")
+        .match_query(Matcher::Missing)
+        .with_body(default_bar().to_string())
         .expect(4)
         .create();
     let named = env
         .server
+        .mock("GET", format!("/navigation/{DRAFT_PAGE}").as_str())
+        .match_query(Matcher::Missing)
+        .with_body(home_bar().to_string())
+        .expect(2)
+        .create();
+    let bars = env
+        .server
         .mock("GET", "/navigation")
-        .match_query(Matcher::UrlEncoded("navBarUuid".into(), DRAFT_PAGE.into()))
-        .with_body(home_bar.to_string())
+        .match_query(Matcher::Missing)
+        .with_body(nav_bars().to_string())
         .expect(2)
         .create();
     let pages = env.pages(1);
 
-    assert_eq!(env.json(&["nav", "get"])?, default);
-    assert_eq!(env.text(&["nav", "get", "-q"])?, format!("{BLOCK}\n"));
-    assert_eq!(
-        env.json(&["nav", "get", "--nav-bar", DRAFT_PAGE])?,
-        home_bar
-    );
+    // no argument is the site default, and so is `default`
+    assert_eq!(env.json(&["nav", "get"])?, default_bar());
+    assert_eq!(env.json(&["nav", "get", "default"])?, default_bar());
+    assert_eq!(env.json(&["nav", "get", "DEFAULT"])?, default_bar());
+    assert_eq!(env.json(&["nav", "get", DRAFT_PAGE])?, home_bar());
     // the home page has its own bar; the about page falls back to the default
-    assert_eq!(env.json(&["nav", "get", "--page", "/"])?, home_bar);
-    assert_eq!(env.json(&["nav", "get", "--page", ABOUT])?, default);
-    bare.assert();
+    assert_eq!(env.json(&["nav", "get", "--page", "/"])?, home_bar());
+    assert_eq!(env.json(&["nav", "get", "--page", ABOUT])?, default_bar());
+    default.assert();
     named.assert();
+    bars.assert();
     pages.assert();
+
+    // a page and a bar together, and the flag the positional replaced
+    for args in [
+        vec!["nav", "get", OTHER, "--page", "/"],
+        vec!["nav", "get", "--nav-bar", OTHER],
+        vec!["nav", "get", "a/b"],
+    ] {
+        env.cmd()?.args(&args).assert().code(2);
+    }
+    Ok(())
+}
+
+#[test]
+fn nav_get_flattens_a_dropdown_for_a_table_and_for_quiet() -> TestResult {
+    let mut env = Env::new()?;
+    let read = env
+        .server
+        .mock("GET", format!("/navigation/{DRAFT_PAGE}").as_str())
+        .with_body(home_bar().to_string())
+        .expect(3)
+        .create();
+    assert_eq!(
+        env.text(&["nav", "get", DRAFT_PAGE, "-q"])?,
+        format!("{BLOCK}\n{DRAFT_BLOCK}\n{HOME}\n{ABOUT}\n")
+    );
+    let assert = env
+        .cmd()?
+        .args(["nav", "get", DRAFT_PAGE, "-o", "table"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "navigation bar {DRAFT_PAGE} (Home bar), on page {HOME}"
+        )));
+    let table = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    for shown in [
+        "navItemUuid",
+        "parent",
+        "linkType",
+        "target",
+        "/about",
+        "folder",
+        "/search",
+        "https://blog.example.com",
+    ] {
+        assert!(table.contains(shown), "{shown} in {table}");
+    }
+    // the dropdown's links name it as their parent
+    let blog = table.lines().find(|line| line.contains("Blog"));
+    assert!(blog.is_some_and(|line| line.contains("More")), "{table}");
+    // JSONL is the top-level items as the API returned them
+    let lines = env.text(&["nav", "get", DRAFT_PAGE, "-o", "jsonl"])?;
+    let first: Value = serde_json::from_str(lines.lines().next().unwrap_or_default())?;
+    assert_eq!(first, home_bar()["items"][0]);
+    assert_eq!(lines.lines().count(), 2);
+    read.assert();
+    Ok(())
+}
+
+#[test]
+fn nav_get_an_unknown_bar_or_a_missing_default_is_exit_4() -> TestResult {
+    let mut env = Env::new()?;
+    let answer = json!({"error": "Navigation bar not found"});
+    let unknown = env
+        .server
+        .mock("GET", format!("/navigation/{BLOCK}").as_str())
+        .with_status(404)
+        .with_body(answer.to_string())
+        .expect(1)
+        .create();
+    let no_default = env
+        .server
+        .mock("GET", "/navigation/default")
+        .with_status(404)
+        .with_body(answer.to_string())
+        .expect(2)
+        .create();
+    // a page on no bar, on a site with no default bar yet
+    let bars = env.get(
+        "/navigation",
+        &json!({"defaultNavBarUuid": null, "navBars": []}),
+    );
+
+    let error = env.error(&["nav", "get", BLOCK], 4)?;
+    assert_eq!(error["code"], "not_found");
+    assert_eq!(error["message"], "Navigation bar not found");
+    assert_eq!(env.error(&["nav", "get"], 4)?["code"], "not_found");
+    assert_eq!(
+        env.error(&["nav", "get", "--page", ABOUT], 4)?["code"],
+        "not_found"
+    );
+    unknown.assert();
+    no_default.assert();
+    bars.assert();
+    Ok(())
+}
+
+#[test]
+fn nav_set_sends_only_the_items_of_a_read_and_asks_no_one_off_a_terminal() -> TestResult {
+    let mut env = Env::new()?;
+    let path = format!("/navigation/{DRAFT_PAGE}");
+    // the whole read goes in; `items` alone goes out, and no `pageUuid`
+    let sent = json!({"items": home_bar()["items"]});
+    let answer = nav_saved(&json!(OTHER));
+
+    let from_stdin = env.write("PUT", &path, Some(&sent), 200, &answer);
+    let assert = env
+        .cmd()?
+        .args(["nav", "set", DRAFT_PAGE, "--data", "-"])
+        .write_stdin(home_bar().to_string())
+        .assert()
+        .success();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&assert.get_output().stdout)?,
+        answer
+    );
+    from_stdin.assert();
+
+    let from_file = env.write("PUT", &path, Some(&sent), 200, &answer);
+    let file = env.file("home-bar.json", &home_bar().to_string())?;
+    let data = format!("@{}", file.display());
+    assert_eq!(
+        env.text(&["nav", "set", DRAFT_PAGE, "-d", &data, "-q"])?,
+        format!("{OTHER}\n")
+    );
+    from_file.assert();
+
+    // just {items}, inline, with a new item; `default` is passed through
+    let new = json!({"items": [{"key": "new-1", "navItemUuid": null, "label": "Contact",
+                                "linkType": "externalUrl", "externalUrl": "https://example.com/contact"}]});
+    let to_default = env.write("PUT", "/navigation/default", Some(&new), 200, &answer);
+    assert_eq!(
+        env.json(&["nav", "set", "default", "-d", &new.to_string(), "-y"])?,
+        answer
+    );
+    to_default.assert();
+    Ok(())
+}
+
+#[test]
+fn nav_set_moves_or_detaches_a_bar_only_when_asked() -> TestResult {
+    let mut env = Env::new()?;
+    let path = format!("/navigation/{DRAFT_PAGE}");
+    let items = home_bar()["items"].clone();
+    let answer = nav_saved(&json!(OTHER));
+    let read = home_bar().to_string();
+    let pages = env.pages(1);
+
+    let moved = env.write(
+        "PUT",
+        &path,
+        Some(&json!({"items": items, "pageUuid": ABOUT})),
+        200,
+        &answer,
+    );
+    env.json(&["nav", "set", DRAFT_PAGE, "-d", &read, "--page", "about"])?;
+    moved.assert();
+    pages.assert();
+
+    let detached = env.write(
+        "PUT",
+        &path,
+        Some(&json!({"items": items, "pageUuid": null})),
+        200,
+        &answer,
+    );
+    env.json(&["nav", "set", DRAFT_PAGE, "-d", &read, "--detach"])?;
+    detached.assert();
+
+    // a `pageUuid` key the caller added is sent as given; a flag wins over it
+    let mut keyed = home_bar();
+    keyed["pageUuid"] = Value::Null;
+    let by_key = env.write(
+        "PUT",
+        &path,
+        Some(&json!({"items": items, "pageUuid": null})),
+        200,
+        &answer,
+    );
+    env.json(&["nav", "set", DRAFT_PAGE, "-d", &keyed.to_string()])?;
+    by_key.assert();
+    let flag_wins = env.write(
+        "PUT",
+        &path,
+        Some(&json!({"items": items, "pageUuid": HOME})),
+        200,
+        &answer,
+    );
+    env.json(&[
+        "nav",
+        "set",
+        DRAFT_PAGE,
+        "-d",
+        &keyed.to_string(),
+        "--page",
+        HOME,
+    ])?;
+    flag_wins.assert();
+
     env.cmd()?
-        .args(["nav", "get", "--page", "/", "--nav-bar", OTHER])
+        .args(["nav", "set", DRAFT_PAGE, "-d", &read])
+        .args(["--page", HOME, "--detach"])
         .assert()
         .code(2);
+    Ok(())
+}
+
+#[test]
+fn nav_set_refuses_bad_input_before_any_write_and_keeps_the_apis_refusals() -> TestResult {
+    let mut env = Env::new()?;
+    let no_write = env.server.mock("PUT", Matcher::Any).expect(0).create();
+    let read = home_bar().to_string();
+    for args in [
+        vec!["nav", "set", DRAFT_PAGE],
+        vec!["nav", "set", "-d", &read],
+        vec!["nav", "set", DRAFT_PAGE, "-d", "[]"],
+        vec!["nav", "set", DRAFT_PAGE, "-d", r#"{"pageUuids": []}"#],
+        vec!["nav", "set", DRAFT_PAGE, "-d", r#"{"items": {}}"#],
+        vec![
+            "nav",
+            "set",
+            DRAFT_PAGE,
+            "-d",
+            r#"{"items": [], "pageUuid": 3}"#,
+        ],
+        vec!["nav", "set", "a/b", "-d", &read],
+    ] {
+        env.cmd()?.args(&args).assert().code(2);
+    }
+    no_write.assert();
+    no_write.remove();
+
+    let path = format!("/navigation/{DRAFT_PAGE}");
+    let sent = json!({"items": home_bar()["items"]});
+    let conflict = env.write(
+        "PUT",
+        &path,
+        Some(&sent),
+        409,
+        &json!({"error": "The navigation changed. Read it again and retry."}),
+    );
+    let error = env.error(&["nav", "set", DRAFT_PAGE, "-d", &read], 6)?;
+    assert_eq!(error["code"], "conflict");
+    conflict.assert();
+    conflict.remove();
+
+    let unknown = env.write(
+        "PUT",
+        &path,
+        Some(&sent),
+        404,
+        &json!({"error": "Navigation bar not found"}),
+    );
+    let error = env.error(&["nav", "set", DRAFT_PAGE, "-d", &read], 4)?;
+    assert_eq!(error["code"], "not_found");
+    unknown.assert();
+    unknown.remove();
+
+    let default_on_a_page = env.write(
+        "PUT",
+        "/navigation/default",
+        Some(&json!({"items": [], "pageUuid": ABOUT})),
+        400,
+        &json!({"error": "The site default cannot be moved to a page"}),
+    );
+    let error = env.error(
+        &[
+            "nav",
+            "set",
+            "default",
+            "-d",
+            r#"{"items": []}"#,
+            "--page",
+            ABOUT,
+        ],
+        5,
+    )?;
+    assert_eq!(error["code"], "validation_error");
+    default_on_a_page.assert();
+    Ok(())
+}
+
+#[test]
+fn nav_set_on_a_terminal_table_names_the_revision_to_restore() -> TestResult {
+    let mut env = Env::new()?;
+    let path = format!("/navigation/{DRAFT_PAGE}");
+    let read = home_bar().to_string();
+    let sent = json!({"items": home_bar()["items"]});
+    let saved = env.write("PUT", &path, Some(&sent), 200, &nav_saved(&json!(OTHER)));
+    let history = env
+        .server
+        .mock("GET", "/revisions")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("resourceType".into(), "navigation".into()),
+            Matcher::UrlEncoded("resourceKey".into(), DRAFT_PAGE.into()),
+            Matcher::UrlEncoded("limit".into(), "2".into()),
+        ]))
+        .with_body(
+            json!({"revisions": [{"revisionUuid": OTHER}, {"revisionUuid": BLOCK}], "nextCursor": null})
+                .to_string(),
+        )
+        .expect(1)
+        .create();
+    env.cmd()?
+        .args(["nav", "set", DRAFT_PAGE, "-d", &read, "-o", "table"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "Live now. To undo: firebird-cli revisions restore {BLOCK}"
+        )))
+        .stdout(predicate::str::contains("revisionUuid"));
+    saved.assert();
+    history.assert();
+
+    // a save that recorded no revision has nothing to name
+    let unrecorded = env.write("PUT", &path, Some(&sent), 200, &nav_saved(&Value::Null));
+    env.cmd()?
+        .args(["nav", "set", DRAFT_PAGE, "-d", &read, "-o", "table"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("recorded no revision"));
+    unrecorded.assert();
+    history.assert();
     Ok(())
 }
 

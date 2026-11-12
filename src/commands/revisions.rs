@@ -51,7 +51,7 @@ pub enum RevisionsSub {
     /// List a setting's revisions, newest first (`GET /revisions`)
     #[command(after_help = "Notes:
   - The result is {revisions, nextCursor}. The newest revision is the current state. Pass `nextCursor` as --cursor for the next page; null means there is no more.
-  - `header` and `navigation` need --key (from `headers list` or `nav get`); the others are kept per site and refuse one (400, exit 5).
+  - `header` and `navigation` need --key (the headerUuid from `headers list`, the navBarUuid from `nav list`); the others are kept per site and refuse one (400, exit 5).
   - A table and `-q` show the revisions; `-o json` has both.")]
     List(ListArgs),
     /// Show one revision and the setting as it was then (`GET /revisions/{revisionUuid}`)

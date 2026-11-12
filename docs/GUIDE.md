@@ -7,12 +7,11 @@ caller can rely on, and the rules for changing a site without breaking it.
 It has commands for signing in; for reading a site (pages, blocks, drafts,
 versions, navigation, theme, footer, headers, social links, areas, media and
 revisions); for editing a page's draft and validating, publishing or
-discarding it; and for changing what is live at once: the theme, footer,
-headers, social links, page settings and featured areas, restoring a
-revision, and adding to and describing the media library. Saving navigation
-and generating images have no command yet; they go through
-`firebird-cli api METHOD PATH` (§11). Where this guide shows the `api` form,
-a dedicated command is planned.
+discarding it; and for changing what is live at once: the theme, navigation,
+footer, headers, social links, page settings and featured areas, restoring a
+revision, and adding to and describing the media library. Generating images
+has no command yet; it goes through `firebird-cli api METHOD PATH` (§11).
+Where this guide shows the `api` form, a dedicated command is planned.
 
 ## 1. Setup
 
@@ -138,8 +137,8 @@ that includes it. The CLI uses the system certificate store.
   publish, discard, delete or replace something: `draft publish`,
   `draft discard`, `blocks remove`, `versions restore`, and every command
   that changes live settings (§7: `styling set`, `social set`, `footer set`,
-  `headers update`, `pages update`, `areas update`, `areas delete`,
-  `revisions restore`, `media update`). On a terminal they ask `[y/N]`.
+  `headers update`, `nav set`, `pages update`, `areas update`,
+  `areas delete`, `revisions restore`, `media update`). On a terminal they ask `[y/N]`.
   Anywhere else (a script, an agent, a pipe) they run without asking, so
   only run them for what you were asked to do.
 - A 429 is retried up to `--max-retries` times (default 3), waiting as
@@ -204,9 +203,9 @@ firebird-cli draft discard about -y     # throw the draft away
 - Changing a page's status (`pages update --status`) is not publishing and
   does not make draft changes live.
 - These apply to the live site immediately, with no draft: creating or
-  updating a page's settings, and saving navigation, styling, social links,
-  the footer, a header, a featured area, media details, or restoring a
-  revision (§7, §8). Before one of these, tell the person it goes live
+  updating a page's settings, and saving navigation (`nav set`), styling,
+  social links, the footer, a header, a featured area, media details, or
+  restoring a revision (§7, §8). Before one of these, tell the person it goes live
   straight away and what you will set, and wait for them to agree.
 - When you finish, report the two kinds separately: what is waiting in a
   draft, and what is already live.
@@ -332,9 +331,11 @@ firebird-cli areas create --name Downtown --route-location downtown
 firebird-cli areas update $AREA --description "Dining and nightlife"
 firebird-cli areas delete $AREA -y
 
-firebird-cli nav get                       # the site's default bar: {navBarUuid, items, navBars}
+firebird-cli nav list                      # the bars: {defaultNavBarUuid, navBars}
+firebird-cli nav get                       # the site's default bar and its items (same as `nav get default`)
+firebird-cli nav get $NAV_BAR              # one bar, by its navBarUuid
 firebird-cli nav get --page /              # the bar a page uses: its own, else the default
-firebird-cli nav get --nav-bar $NAV_BAR
+firebird-cli nav set $NAV_BAR --data @bar.json   # replace every item on the bar
 firebird-cli nav anchors about             # the sections of a page a link can scroll to
 ```
 
@@ -400,16 +401,43 @@ Featured areas (`areas create`, `areas update`, `areas delete`):
 
 Navigation:
 
-- Saving navigation has no command yet; a dedicated one is coming. Until
-  then it is `firebird-cli api PUT /navigation` (§11), which REPLACES the
-  whole bar. Read its request shape in the API's OpenAPI document first
-  (`firebird-cli api GET /docs --no-auth`): the save takes nested items, not
-  the flat list `nav get` returns, so the read cannot be sent straight back.
 - A page can have its own navigation bar; otherwise it uses the site
-  default. `nav get` lists every bar under `navBars` with the `pageUuids` it
-  applies to. Read the bar you will change and save back to the same
-  `navBarUuid`. Links to content pages can only go on a page's own bar,
-  never on the site default.
+  default. `nav list` shows every bar with its `navBarUuid`, `name`,
+  `isSiteDefault` and the `pageUuids` it applies to. It does not show items.
+- `nav get <NAV_BAR>` reads one bar: `{navBarUuid, name, isSiteDefault,
+  pageUuids, items}`. `<NAV_BAR>` is a `navBarUuid` or `default` for the
+  site's default bar; with no argument it is `default`. `--page <page>`
+  reads the bar that page uses. An unknown `navBarUuid` is 404 (exit 4), and
+  so is `default` on a site that has no bar yet.
+- `items` is nested and in display order. A link has `label`, `linkType`
+  (`customPage`, `standardPage`, `externalUrl` or `anchor`) and its target
+  in `customPageUuid`, `standardPageUuid`, `externalUrl` or `pageSection`.
+  A dropdown has `linkType` `folder` and its links under `children`, one
+  level deep. `pageSlug`, `pageStatus` and `standardPagePath` are read-only.
+  `nav anchors <page>` lists the sections an `anchor` link can point at.
+- To change a bar: `nav list`, then `nav get $NAV_BAR -o json > bar.json`,
+  edit `items` in that file, then `nav set $NAV_BAR --data @bar.json`.
+  `--data` is inline JSON, `@file` or `-` for stdin, and takes either the
+  whole read or just `{"items": [...]}`. Only `items` is sent; the
+  read-only fields are ignored.
+- `nav set` REPLACES the bar: an item left out of `items` is deleted. Start
+  from a fresh `nav get` and change only what was asked for.
+- A new item has `navItemUuid: null` and any `key` that no other item in
+  the same request uses. An existing item keeps its `navItemUuid`.
+- `pageUuid` only matters for moving a bar. Without it the bar stays on the
+  page it is on. `--page <page>` moves the bar to that page and `--detach`
+  takes it off its page; a `pageUuid` key added to `--data` (a uuid or
+  null) does the same, and the flags win over it. The `pageUuids` of a read
+  is never sent. The site default cannot be moved to a page (400, exit 5).
+- `nav set default` saves the site's default bar and creates it when the
+  site has none.
+- 409 (exit 6) means the navigation changed elsewhere since you read it.
+  Run `nav get` again, reapply the change and save.
+- The result is `{navBarUuid, revisionUuid}`: the revision this save
+  recorded (`-q` prints it). Undo with `revisions restore` (§8), with
+  `--type navigation --key $NAV_BAR` to list the bar's history.
+- Links to content pages can only go on a page's own bar, never on the site
+  default.
 
 ## 8. Undo
 
@@ -434,6 +462,7 @@ firebird-cli versions restore about 3 -y   # make it the draft; then `draft publ
 ```bash
 firebird-cli revisions list --type styling              # newest first
 firebird-cli revisions list --type header --key $HEADER
+firebird-cli revisions list --type navigation --key $NAV_BAR   # a navBarUuid from `nav list`, not `default`
 firebird-cli revisions get $REVISION                    # the setting as it was then
 firebird-cli revisions restore $REVISION -y             # put the setting back to it
 ```
@@ -510,13 +539,13 @@ firebird-cli media update $MEDIA --description "A covered front porch at dusk" -
 
 `firebird-cli api METHOD PATH` calls any endpoint with the stored key, and
 prints the response like any other command. Use it for what has no command
-yet: saving navigation (§7) and generating an image (§9).
+yet: generating an image (§9).
 
 ```bash
 firebird-cli api GET /pages
 firebird-cli api GET /blocks -p includeSchema=false           # -p key=value, repeatable
-firebird-cli api PUT /navigation -d @navigation.json          # a file
-cat navigation.json | firebird-cli api PUT /navigation -d -   # stdin
+firebird-cli api POST /media/generate -d @request.json        # a file
+cat request.json | firebird-cli api POST /media/generate -d - # stdin
 firebird-cli api GET /docs --no-auth                          # the OpenAPI document
 firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 ```
