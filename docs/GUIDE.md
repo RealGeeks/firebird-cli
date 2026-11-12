@@ -4,14 +4,15 @@
 at a time through the Firebird API. This guide is the contract an automated
 caller can rely on, and the rules for changing a site without breaking it.
 
-It has commands for signing in, for reading a site (pages, blocks, drafts,
+It has commands for signing in; for reading a site (pages, blocks, drafts,
 versions, navigation, theme, footer, headers, social links, areas, media and
-revisions) and for editing a page's draft: adding, changing, moving and
-removing blocks, then validating, publishing or discarding it. Changing the
-live settings (navigation, theme, footer, headers, social links, areas, page
-settings), restoring a revision and uploading media have no command yet; they
-go through `firebird-cli api METHOD PATH` (§11). Where this guide shows the
-`api` form, a dedicated command is planned.
+revisions); for editing a page's draft and validating, publishing or
+discarding it; and for changing what is live at once: the theme, footer,
+headers, social links, page settings and featured areas, restoring a
+revision, and adding to and describing the media library. Saving navigation
+and generating images have no command yet; they go through
+`firebird-cli api METHOD PATH` (§11). Where this guide shows the `api` form,
+a dedicated command is planned.
 
 ## 1. Setup
 
@@ -26,8 +27,8 @@ The scripts verify the release checksum and, with the GitHub CLI logged in,
 its build-provenance attestation; `firebird-cli --version` confirms it.
 `firebird-cli update` installs a newer release later (§13); nothing updates
 on its own. Releases are listed at
-<https://github.com/RealGeeks/firebird-cli/releases>. If none is listed yet,
-or to run unreleased code, build from a checkout of the repository instead:
+<https://github.com/RealGeeks/firebird-cli/releases>. To run unreleased
+code, build from a checkout of the repository instead:
 
 ```bash
 cargo install --path .
@@ -133,10 +134,14 @@ that includes it. The CLI uses the system certificate store.
   response in full, so details such as a publish's `errors` list or a 409's
   `lockedPages` are there. `hint`, when present, says what to do next.
 - `-v` logs each request's method, URL and status on stderr.
-- `-y` (`--yes`) answers the confirmation that `draft publish`,
-  `draft discard`, `blocks remove` and `versions restore` ask for. On a
-  terminal they ask `[y/N]`. Anywhere else (a script, an agent, a pipe) they
-  run without asking, so only run them for what you were asked to do.
+- `-y` (`--yes`) answers the confirmation asked by the commands that
+  publish, discard, delete or replace something: `draft publish`,
+  `draft discard`, `blocks remove`, `versions restore`, and every command
+  that changes live settings (§7: `styling set`, `social set`, `footer set`,
+  `headers update`, `pages update`, `areas update`, `areas delete`,
+  `revisions restore`, `media update`). On a terminal they ask `[y/N]`.
+  Anywhere else (a script, an agent, a pipe) they run without asking, so
+  only run them for what you were asked to do.
 - A 429 is retried up to `--max-retries` times (default 3), waiting as
   `Retry-After` says, with a `rate limited; retrying in Ns` line on stderr.
 - Text from the API is stripped of control characters before it reaches a
@@ -195,8 +200,8 @@ firebird-cli draft discard about -y     # throw the draft away
   people's included, and releases the lock. A page with no draft is not an
   error.
 - `draft publish`, `draft discard`, `blocks remove` and `versions restore`
-  need `-y` when no one is at the keyboard (§2).
-- Changing a page's status (`PUT /pages/{pageUuid}`) is not publishing and
+  ask first on a terminal only; a script or agent is not asked (§2).
+- Changing a page's status (`pages update --status`) is not publishing and
   does not make draft changes live.
 - These apply to the live site immediately, with no draft: creating or
   updating a page's settings, and saving navigation, styling, social links,
@@ -302,48 +307,109 @@ Block ids, live and draft:
 
 ## 7. Site settings: navigation, theme, footer, headers, pages
 
-Reading them has commands:
+These are not part of a page's draft. Every write here changes the live site
+the moment it succeeds (§4), so say what you will set and get agreement
+first.
 
 ```bash
+firebird-cli styling get                   # the theme
+firebird-cli styling fonts                 # the fonts a theme can use
+firebird-cli styling set spacing=compact primaryColor=#1a4d8f
+firebird-cli social get
+firebird-cli social set instagram=examplerealty tiktok=       # an empty value removes a link
+firebird-cli footer get
+firebird-cli footer set phone="555-0100" isRealtor=false licenseNumber=null
+firebird-cli headers list
+firebird-cli headers get $HEADER
+firebird-cli headers update $HEADER isSticky=true logoPosition=center
+
+firebird-cli pages create --slug areas/downtown --meta-title "Downtown homes"
+firebird-cli pages update about --meta-title "About our team"
+firebird-cli pages update about --status unpublished
+
+firebird-cli areas list
+firebird-cli areas create --name Downtown --route-location downtown
+firebird-cli areas update $AREA --description "Dining and nightlife"
+firebird-cli areas delete $AREA -y
+
 firebird-cli nav get                       # the site's default bar: {navBarUuid, items, navBars}
 firebird-cli nav get --page /              # the bar a page uses: its own, else the default
 firebird-cli nav get --nav-bar $NAV_BAR
 firebird-cli nav anchors about             # the sections of a page a link can scroll to
-firebird-cli styling get                   # the theme
-firebird-cli styling fonts                 # the fonts a theme can use
-firebird-cli footer get
-firebird-cli headers list
-firebird-cli headers get $HEADER
-firebird-cli social get
-firebird-cli areas list
 ```
 
-Changing them has no command yet. The writes are `PUT` on `/navigation`,
-`/styling`, `/social-links`, `/footer`, `/headers/{headerUuid}` and
-`/pages/{pageUuid}`, through `firebird-cli api` (§11), and they change the
-live site at once (§4).
+The theme, social links, footer and headers (`styling set`, `social set`,
+`footer set`, `headers update`):
 
-- Every `PUT` here REPLACES the whole object. Read the current value first,
-  change the one thing asked for, and send the entire object back.
-  `PUT /pages/{pageUuid}` requires `slug` even when only a title changes.
-- Read each request's exact shape in the API's OpenAPI document before
-  building it: `firebird-cli api GET /docs --no-auth`.
-- Navigation reads and writes use different shapes, so the read cannot be
-  sent straight back. The read is a flat list where `parentNavItemUuid` and
-  `followsNavItemUuid` give each item's place. The save takes nested items:
-  each needs a `key` you choose (any unique string, used to tie children to
-  parents within the request), a `linkType`, its existing `navItemUuid` (or
-  `null` for a new item), and folders carry their children.
+- Give the fields to change as `key=value`, named as the read names them.
+  The value is JSON when it parses as JSON (`true`, `null`, `3`) and text
+  otherwise, exactly as `blocks patch --set` (§6). `--data` takes a JSON
+  object (inline, `@file`, `-` for stdin); a `key=value` wins over the same
+  field in `--data`. With nothing to change the command is exit 2.
+- Only what you pass changes. The API itself replaces the whole object on
+  every save, so the command reads the current value, writes your fields
+  over it and sends everything back. Two writers doing that at the same
+  moment can undo each other's change: the API has no check for it. Read
+  again after a save if anyone else may be editing.
+- Only the fields the save takes are sent. Read-only fields in the read
+  (`siteUuid`, `headingFontUrl` and `bodyFontUrl` in the theme; a header's
+  `name` and `pageUuids`) are left out, so the output of `styling get` can
+  be edited and passed back with `--data`. A field the setting does not have
+  is exit 2, before anything is sent.
+- The result is the object as stored, with `revisionUuid`: the revision this
+  save recorded (`-q` prints it). When the API stored a field differently
+  from what was sent (a profile URL in `social set` is reduced to its
+  handle), a `warning:` line on stderr says so.
+- Undo with `revisions restore` (§8). On a terminal the note after a save
+  names the revision to restore.
+- Theme fonts must be names from `styling fonts`. A font the site has never
+  chosen reads as the default font's name, and any save stores that name,
+  even when null is sent. What visitors see does not change, but only
+  restoring an older revision makes the font unset again.
+- `headers update` changes one existing header. It does not create, delete
+  or rename a header or change which pages use it. `isTransparent` only
+  applies to a sticky header.
+- In the footer an empty or null text field hides that line; `overrideText`
+  is HTML, sanitized by the API.
+
+Pages (`pages create`, `pages update`):
+
+- `pages create` needs `--slug` (lowercase letters, digits and hyphens, with
+  `/` between parts). A slug in use is 409 (exit 6); a site limited to one
+  page answers 403 (exit 3). The new page has no blocks: add them with
+  `blocks add` (§6).
+- `pages update` takes `--slug`, `--meta-title`, `--meta-description`,
+  `--meta-keywords` and `--status` (`active` or `unpublished`). The API
+  replaces the settings whole and clears any meta field left out, so the
+  command reads the page and sends back every setting you did not pass.
+  Pass an empty value to clear one: `--meta-keywords ""`.
+- Setting a page `active` is refused (403, exit 3) when the site's owner
+  handles publishing. The home page cannot be unpublished (400, exit 5).
+- Page settings keep no history. Note the old values (`pages get`) before
+  changing them; there is no undo.
+
+Featured areas (`areas create`, `areas update`, `areas delete`):
+
+- Flags are `--name`, `--description`, `--media-uuid`, `--route-location`,
+  `--custom-url`, `--lat` and `--lon`. `areas update` changes only the flags
+  given; `null` clears a field.
+- An area links to a location search (`--route-location`) or to
+  `--custom-url`, not both (400, exit 5): clear one when setting the other.
+- Deleting an area is permanent, and areas keep no history. Confirm the
+  area's name with the person first.
+
+Navigation:
+
+- Saving navigation has no command yet; a dedicated one is coming. Until
+  then it is `firebird-cli api PUT /navigation` (§11), which REPLACES the
+  whole bar. Read its request shape in the API's OpenAPI document first
+  (`firebird-cli api GET /docs --no-auth`): the save takes nested items, not
+  the flat list `nav get` returns, so the read cannot be sent straight back.
 - A page can have its own navigation bar; otherwise it uses the site
   default. `nav get` lists every bar under `navBars` with the `pageUuids` it
   applies to. Read the bar you will change and save back to the same
   `navBarUuid`. Links to content pages can only go on a page's own bar,
   never on the site default.
-- `styling get` returns `siteUuid`, `headingFontUrl` and `bodyFontUrl`,
-  which the `PUT` rejects. Leave those three out when you send it back.
-  Check font names with `styling fonts` first.
-- Deleting a featured area (`DELETE /areas/{areaUuid}`) is permanent. Confirm
-  the area's name with the person first.
 
 ## 8. Undo
 
@@ -366,16 +432,20 @@ firebird-cli versions restore about 3 -y   # make it the draft; then `draft publ
   the nav bar's or header's uuid.
 
 ```bash
-firebird-cli revisions list --type styling
-firebird-cli revisions list --type navigation --key $NAV_BAR
+firebird-cli revisions list --type styling              # newest first
+firebird-cli revisions list --type header --key $HEADER
 firebird-cli revisions get $REVISION                    # the setting as it was then
-firebird-cli api POST /revisions/$REVISION/restore      # no dedicated command yet
+firebird-cli revisions restore $REVISION -y             # put the setting back to it
 ```
 
-  The newest revision is the current state; restore the one just before the
-  change being undone. A restore is itself a live change. A revision that
-  can no longer be applied is a 422 whose `code` says why, for example
-  `REVISION_ALREADY_CURRENT`.
+- The newest revision is the current state, so to undo the latest change
+  restore the one just before it. Restoring the newest is refused: 422
+  (exit 5) with code `REVISION_ALREADY_CURRENT`.
+- A restore is itself a live change and is recorded as a new revision, so it
+  can be undone the same way. `-q` prints the new revision's uuid.
+- A revision that can no longer be applied (it links to a page since
+  deleted, say) is a 422 whose `code` says why. 409 (exit 6) means the
+  setting changed during the restore: run it again.
 - Always undo these by restoring a revision, never by saving the old values
   by hand.
 - Restoring a navigation revision recreates its items under new uuids.
@@ -388,24 +458,39 @@ firebird-cli api POST /revisions/$REVISION/restore      # no dedicated command y
 ```bash
 firebird-cli media list --query porch --orientation landscape --limit 20
 firebird-cli media get $MEDIA
+firebird-cli media import https://images.example.com/porch.jpg --alt "A front porch"
+firebird-cli media upload ./porch.jpg --alt "A front porch"
+firebird-cli media update $MEDIA --description "A covered front porch at dusk" --tags exterior,porch
 ```
 
 - Prefer existing media. `media list` searches descriptions and filenames
   with `--query`, and filters with `--tags` (comma-separated, any of them),
   `--media-type`, `--asset-role` and `--orientation`. The result is
   `{items, total}`; page with `--limit` (at most 100) and `--offset`.
-- Adding or changing media has no command yet; the routes are under `/media`
-  and go through `firebird-cli api` (§11).
-- `POST /media/generate` is slow, billed and not de-duplicated. Call it once
-  per image and do not retry a refusal. Never generate images of people or
-  faces.
-- `POST /media/import` copies an image from a public https URL into the
-  library. Confirm the person has the rights to reuse it.
-- To upload a file you hold: `POST /media/upload-url`, `PUT` the bytes to
-  the returned URL with another tool (for example `curl`), then
-  `POST /media/confirm`. The CLI does not upload files itself yet.
-- `PATCH /media/{mediaUuid}` changes an asset already in use, immediately
-  and with no undo.
+- `media import` copies an image from a public https address into the
+  library; the API fetches it and checks its type from its bytes. Confirm
+  the person has the rights to reuse it.
+- `media upload` sends a local file: JPEG, PNG, WebP, GIF or AVIF up to
+  20 MB, or MP4, WebM or QuickTime video up to 75 MB. The type comes from
+  the file's extension unless `--mime-type` gives it; `--filename` changes
+  the stored name. It is three steps: ask the API for an upload address, PUT
+  the bytes there, confirm. The upload address is on a storage host, not the
+  API: your key and token are not sent to it, it must be https (or a local
+  dev host), and redirects are not followed. Hidden files and credential
+  folders are refused as for any file the CLI sends (§11).
+- If the upload or the confirmation fails, the API keeps a pending record
+  that never shows in the library; a `warning:` line on stderr gives its
+  mediaUuid. Run the upload again.
+- Both print the new media record; `-q` prints its `mediaUuid`, which is
+  what a block's `mediaUuid` field takes (§6).
+- `media update` sets `--alt`, `--description`, `--tags` (replacing the
+  list) and `--asset-role`; `null` clears one. It changes an asset already
+  in use, at once, and media details keep no history.
+- Media cannot be deleted through the API.
+- Generating an image has no command; it is
+  `firebird-cli api POST /media/generate` (§11). It is slow, billed and not
+  de-duplicated: call it once per image and do not retry a refusal. Never
+  generate images of people or faces.
 
 ## 10. Writing content
 
@@ -425,15 +510,13 @@ firebird-cli media get $MEDIA
 
 `firebird-cli api METHOD PATH` calls any endpoint with the stored key, and
 prints the response like any other command. Use it for what has no command
-yet: the live-settings writes (§7), restoring a revision (§8) and changing
-media (§9).
+yet: saving navigation (§7) and generating an image (§9).
 
 ```bash
 firebird-cli api GET /pages
 firebird-cli api GET /blocks -p includeSchema=false           # -p key=value, repeatable
-firebird-cli api PUT /footer -d @footer.json                  # a file
-cat footer.json | firebird-cli api PUT /footer -d -           # stdin
-firebird-cli api POST /revisions/$REVISION/restore
+firebird-cli api PUT /navigation -d @navigation.json          # a file
+cat navigation.json | firebird-cli api PUT /navigation -d -   # stdin
 firebird-cli api GET /docs --no-auth                          # the OpenAPI document
 firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 ```
@@ -444,7 +527,7 @@ firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 - `api` takes uuids in its paths, not slugs, and asks for no confirmation.
 - `--no-auth` sends no credentials, for the public endpoints.
 - A response that is not JSON is printed as `{"raw": "<text>"}`.
-- `-d @file` (and `--data @file` on the block commands) refuses hidden
+- `-d @file` (and `--data @file` or a file to upload, on the other commands) refuses hidden
   files, anything in a hidden directory directly under your home directory,
   credential folders (`~/.ssh`, `~/.aws`, …) and firebird-cli's own config
   and token files (exit 2): what the CLI reads is sent to the API and may
@@ -457,7 +540,7 @@ firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 | ---- | ----------------------------------------------------------------------- |
 | 0    | Success                                                                 |
 | 1    | Any other failure, including a 5xx from the API                         |
-| 2    | Usage: bad flags or arguments, invalid JSON, a refused file or URL, an ambiguous page, a confirmation not given (`-y`) |
+| 2    | Usage: bad flags or arguments, invalid JSON, a refused file or URL, an ambiguous page, a confirmation declined at the prompt |
 | 3    | Authentication: no key, a key the API refused (401), or not allowed (403) |
 | 4    | Not found (404), including a page slug the site does not have           |
 | 5    | Validation: the API refused the request (400, 413, 415, 422), or `draft validate` found errors |

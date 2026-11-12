@@ -2,6 +2,7 @@
 //! block data from flags, path building and the confirmation prompt.
 
 pub mod api;
+pub mod areas;
 pub mod auth;
 pub mod blocks;
 pub mod draft;
@@ -169,6 +170,41 @@ pub fn read_json(source: &str) -> Result<Value> {
     Ok(serde_json::from_str(&text)?)
 }
 
+/// What to change, for the commands that take `key=value` arguments.
+#[derive(Debug, clap::Args)]
+pub struct FieldArgs {
+    /// A field to change: key=value, repeatable. The value is JSON when it
+    /// parses as JSON (`true`, `null`, `3`, `["a"]`), else text. Wins over
+    /// the same field in --data
+    #[arg(value_name = "KEY=VALUE")]
+    pub fields: Vec<String>,
+    /// Fields to change as a JSON object: inline, `@file`, or `-` for stdin
+    #[arg(short = 'd', long, value_name = "JSON")]
+    pub data: Option<String>,
+}
+
+impl FieldArgs {
+    /// The fields given, or a usage error when there are none.
+    pub fn changes(&self) -> Result<Map<String, Value>> {
+        block_data(self.data.as_deref(), &self.fields)?.ok_or_else(|| {
+            Error::Usage("nothing to change: give key=value fields or --data".into())
+        })
+    }
+}
+
+/// Write `changes` over `target`: objects merge key by key, anything else
+/// (arrays and null included) replaces what was there.
+pub fn merge(target: &mut Map<String, Value>, changes: Map<String, Value>) {
+    for (key, value) in changes {
+        match (target.get_mut(&key), value) {
+            (Some(Value::Object(existing)), Value::Object(incoming)) => merge(existing, incoming),
+            (_, value) => {
+                target.insert(key, value);
+            }
+        }
+    }
+}
+
 /// Block data from `--data` and `--set`: the `--data` object with each
 /// `--set key=value` written over it. `None` when neither flag was given.
 pub fn block_data(data: Option<&str>, sets: &[String]) -> Result<Option<Map<String, Value>>> {
@@ -184,7 +220,7 @@ pub fn block_data(data: Option<&str>, sets: &[String]) -> Result<Option<Map<Stri
         let (key, value) = set
             .split_once('=')
             .filter(|(key, _)| key.split('.').all(|part| !part.is_empty()))
-            .ok_or_else(|| Error::Usage(format!("--set expects key=value, got '{set}'")))?;
+            .ok_or_else(|| Error::Usage(format!("expected key=value, got '{set}'")))?;
         // JSON when it is JSON (3, true, null, [..], {..}, "quoted"); else the text itself
         let value = serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.into()));
         set_path(&mut object, key, value);
