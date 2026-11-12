@@ -1,9 +1,11 @@
 //! `firebird-cli revisions …` — the history the theme, navigation, footer,
-//! headers, social links and site settings keep. Read only for now.
+//! headers, social links and site settings keep, and restoring from it.
 
 use clap::{Args, Subcommand};
 
-use super::{segment, Context};
+use serde_json::{json, Map, Value};
+
+use super::{confirm, segment, Context};
 use crate::client::Query;
 use crate::error::Result;
 use crate::output::{cell, col, Column, Format};
@@ -58,6 +60,21 @@ pub enum RevisionsSub {
         #[arg(value_name = "REVISION_UUID")]
         revision_uuid: String,
     },
+    /// Put a setting back to what a revision recorded (`POST /revisions/{revisionUuid}/restore`)
+    #[command(after_help = "Notes:
+  - Live at once. Asks first on a terminal; -y skips the question.
+  - The newest revision is the current state, so restoring it is refused (422, exit 5, code REVISION_ALREADY_CURRENT). To undo the latest change, restore the revision before it.
+  - A restore is itself recorded as a new revision, so it can be undone the same way. The result is that new revision (`-q` prints its revisionUuid).
+  - A revision that can no longer be applied (it links to a page since deleted, say) is a 422 whose `code` says why; 409 (exit 6) means the setting changed during the restore: run it again.
+  - Restoring a navigation revision recreates its items under new uuids; run `nav get` again afterwards.")]
+    Restore {
+        /// The revision's uuid, from `revisions list`
+        #[arg(value_name = "REVISION_UUID")]
+        revision_uuid: String,
+        /// A note recorded with the restore (up to 500 characters)
+        #[arg(short = 'm', long, value_name = "TEXT")]
+        message: Option<String>,
+    },
 }
 
 pub fn run(ctx: &Context, cmd: &RevisionsCommand) -> Result<()> {
@@ -81,6 +98,31 @@ pub fn run(ctx: &Context, cmd: &RevisionsCommand) -> Result<()> {
                 }
             }
             ctx.printer.wrapped(&body, "/revisions", COLUMNS)
+        }
+        RevisionsSub::Restore {
+            revision_uuid,
+            message,
+        } => {
+            let revision = segment("the revisionUuid", revision_uuid)?;
+            let mut body = Map::new();
+            if let Some(message) = message.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                body.insert("message".into(), json!(message));
+            }
+            confirm(
+                ctx,
+                &format!("restore revision {revision} on the live site"),
+            )?;
+            let restored = ctx
+                .client
+                .post(
+                    &format!("{PATH}/{revision}/restore"),
+                    Some(&Value::Object(body)),
+                )?
+                .body;
+            ctx.printer.note(
+                "Live now. The restore is a new revision; restore the one before it to undo.",
+            );
+            ctx.printer.one(&restored, "/revision/revisionUuid")
         }
         RevisionsSub::Get { revision_uuid } => {
             let revision = segment("the revisionUuid", revision_uuid)?;

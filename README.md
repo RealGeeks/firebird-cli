@@ -7,11 +7,13 @@ exit codes, and a built-in guide written for agents.
 
 **Status:** pre-1.0. What exists today: signing in with an API key; reading
 pages, blocks, drafts, versions, navigation, theme, footer, headers, social
-links, areas, media and revisions; and editing a page's draft (add, patch,
-move, duplicate, remove and reorder blocks, then validate, publish or
-discard). Changing the live settings, restoring a revision and uploading
-media have no command yet and go through the raw `firebird-cli api`. Expect
-breaking changes.
+links, areas, media and revisions; editing a page's draft (add, patch, move,
+duplicate, remove and reorder blocks, then validate, publish or discard);
+and changing what is live at once: the theme, footer, headers, social links,
+page settings and featured areas, restoring a revision, and importing,
+uploading and describing media. Saving navigation has no command yet and
+goes through the raw `firebird-cli api`; a dedicated command is coming.
+Expect breaking changes.
 
 ```bash
 pbpaste | firebird-cli auth login --site www.example.com --api-key-stdin
@@ -38,11 +40,8 @@ irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 
 ```
 <!-- x-release-please-end -->
 
-These install a release from the
-[Releases page](https://github.com/RealGeeks/firebird-cli/releases). If that
-page lists no release yet, the first one has not been cut and the commands
-above have nothing to download: [build from source](#build-from-source)
-until it has.
+These install the latest release from the
+[Releases page](https://github.com/RealGeeks/firebird-cli/releases).
 
 The scripts download the archive for your platform (macOS on Apple silicon
 and Intel, Linux x86_64 and arm64 as static binaries, Windows x86_64), check
@@ -152,6 +151,9 @@ firebird-cli auth logout | status | sites | use <domain>
 firebird-cli me
 
 firebird-cli pages list | get <page> | content <page>
+firebird-cli pages create --slug SLUG [--meta-title ..] [--meta-description ..] [--meta-keywords ..]
+firebird-cli pages update <page> [--slug ..] [--meta-title ..] [--meta-description ..]
+                                 [--meta-keywords ..] [--status active|unpublished]
 firebird-cli blocks types | schema <codeName>
 firebird-cli blocks add <page> <codeName> [--position N] [--data JSON|@file|-] [--set k=v]...
 firebird-cli blocks patch <page> <block> [--data JSON|@file|-] [--set k=v]...
@@ -164,15 +166,21 @@ firebird-cli draft publish <page> [--message TEXT]
 firebird-cli versions list <page> | get <page> <n> | restore <page> <n>
 
 firebird-cli nav get [--nav-bar UUID | --page <page>] | anchors <page>
-firebird-cli styling get | fonts
-firebird-cli footer get
-firebird-cli headers list | get <headerUuid>
-firebird-cli social get
-firebird-cli areas list
+firebird-cli styling get | fonts | set [k=v]... [--data JSON|@file|-]
+firebird-cli footer get | set [k=v]... [--data ...]
+firebird-cli headers list | get <headerUuid> | update <headerUuid> [k=v]... [--data ...]
+firebird-cli social get | set [platform=handle]... [--data ...]
+firebird-cli areas list | create --name .. | update <areaUuid> | delete <areaUuid>
+                 [--description ..] [--media-uuid ..] [--route-location ..] [--custom-url ..]
+                 [--lat N] [--lon N]
 firebird-cli media list [--query TEXT] [--tags a,b] [--media-type T] [--asset-role R]
                         [--orientation O] [--limit N] [--offset N] | get <mediaUuid>
+firebird-cli media import <url> [--alt TEXT]
+firebird-cli media upload <file> [--alt TEXT] [--mime-type TYPE] [--filename NAME]
+firebird-cli media update <mediaUuid> [--alt ..] [--description ..] [--tags a,b] [--asset-role R]
 firebird-cli revisions list --type <resourceType> [--key <resourceKey>] [--change-set UUID]
                             [--cursor N] [--limit N] | get <revisionUuid>
+firebird-cli revisions restore <revisionUuid> [--message TEXT]
 
 firebird-cli api METHOD PATH [-p k=v]... [-d JSON | -d @file | -d -] [--no-auth]
 firebird-cli guide [topic] [--list]
@@ -216,13 +224,40 @@ response under `error.body`:
 {"error":{"code":"not_found","message":"Page not found","status":404,"body":{"error":"Page not found"},"exit_code":4}}
 ```
 
-`api` calls any endpoint with the stored key, for what has no command yet.
-`-d @file` refuses hidden files and credential folders, because what it
-reads is sent to the API:
+Settings are not drafts: they change the live site the moment a command
+succeeds.
 
 ```bash
-firebird-cli api PUT /footer -d @footer.json
-firebird-cli api POST /revisions/$REVISION/restore
+firebird-cli styling set spacing=compact primaryColor=#1a4d8f
+firebird-cli footer set phone="555-0100" isRealtor=false
+firebird-cli pages update about --meta-title "About our team"
+firebird-cli revisions list --type styling
+firebird-cli revisions restore $REVISION        # put a setting back
+firebird-cli media upload ./porch.jpg --alt "A front porch"
+```
+
+- `styling set`, `social set`, `footer set`, `headers update` and
+  `pages update` change only the fields you pass. The API replaces the whole
+  object on a save, so the CLI reads the current value, applies your fields
+  and sends everything back; two writers doing that at once can undo each
+  other.
+- The theme, social links, footer and headers keep a history: a save prints
+  its `revisionUuid`, and `revisions restore` of the revision before it
+  undoes it. Page settings, featured areas and media details keep no
+  history.
+- `media upload` accepts JPEG, PNG, WebP, GIF and AVIF images up to 20 MB
+  and MP4, WebM and QuickTime videos up to 75 MB. The bytes go to a storage
+  address the API hands out; your key and token are never sent there.
+- The commands that replace or delete ask for confirmation on a terminal;
+  `-y` skips the question, and a script or agent is not asked.
+
+`api` calls any endpoint with the stored key, for what has no command yet
+(saving navigation). `-d @file` refuses hidden files and credential folders,
+because what it reads is sent to the API:
+
+```bash
+firebird-cli api PUT /navigation -d @navigation.json
+firebird-cli api GET /docs --no-auth
 firebird-cli api GET /healthz/ready --no-auth
 ```
 

@@ -76,6 +76,9 @@ impl Error {
             Error::NotLoggedIn(_) => {
                 Some("run `firebird-cli auth login --site <domain> --api-key-stdin`")
             }
+            Error::Api { code, .. } if code == "REVISION_ALREADY_CURRENT" => Some(
+                "that revision is the setting's current state, so there is nothing to restore. To undo the latest change, restore the revision before it (`firebird-cli revisions list --type <type>`)",
+            ),
             Error::Api { status, .. } => match *status {
                 401 => Some(
                     "the API key was not accepted: it may be mistyped, revoked, or made for another environment. Create a key on the site's Integrations page and run `firebird-cli auth login --site <domain> --api-key-stdin`",

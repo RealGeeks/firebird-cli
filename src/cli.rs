@@ -6,8 +6,8 @@ use clap_complete::Shell;
 
 use crate::client::Client;
 use crate::commands::{
-    api, auth, blocks, draft, guide, media, nav, pages, revisions, settings, update, versions,
-    Context,
+    api, areas, auth, blocks, draft, guide, media, nav, pages, revisions, settings, update,
+    versions, Context,
 };
 use crate::config::{self, Config, Overrides};
 use crate::error::Result;
@@ -122,19 +122,19 @@ pub enum Command {
     Versions(versions::VersionsCommand),
     /// Navigation bars and the sections a link can point at (read only)
     Nav(nav::NavCommand),
-    /// The theme: colours, fonts, radii, spacing (read only)
+    /// The theme: colours, fonts, radii, spacing
     Styling(settings::StylingCommand),
-    /// The site footer (read only)
+    /// The site footer
     Footer(settings::FooterCommand),
-    /// Page headers (read only)
+    /// Page headers
     Headers(settings::HeadersCommand),
-    /// Social media links (read only)
+    /// Social media links
     Social(settings::SocialCommand),
-    /// Featured areas (read only)
-    Areas(settings::AreasCommand),
-    /// The media library (read only)
+    /// Featured areas
+    Areas(areas::AreasCommand),
+    /// The media library: search, import, upload, describe
     Media(media::MediaCommand),
-    /// The history of the theme, navigation, footer, headers and social links (read only)
+    /// The history of the theme, navigation, footer, headers and social links, and restoring from it
     Revisions(revisions::RevisionsCommand),
     /// Call any API endpoint directly
     Api(api::ApiArgs),
@@ -233,7 +233,7 @@ fn dispatch(cli: Cli, printer: Printer) -> Result<()> {
                 Command::Footer(cmd) => settings::footer(&ctx, &cmd),
                 Command::Headers(cmd) => settings::headers(&ctx, &cmd),
                 Command::Social(cmd) => settings::social(&ctx, &cmd),
-                Command::Areas(cmd) => settings::areas(&ctx, &cmd),
+                Command::Areas(cmd) => areas::run(&ctx, &cmd),
                 Command::Media(cmd) => media::run(&ctx, &cmd),
                 Command::Revisions(cmd) => revisions::run(&ctx, &cmd),
                 Command::Api(args) => api::run(&ctx, &args),

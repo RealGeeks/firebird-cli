@@ -27,6 +27,8 @@ pub const EXCHANGE_PATH: &str = "auth/client-integration";
 const API_KEY_HEADER: &str = "X-Api-Key";
 const MAX_RETRY_WAIT: u64 = 30;
 const MAX_REDIRECTS: usize = 10;
+/// A 75 MB video over a slow link needs longer than an API call.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// Larger responses are refused rather than buffered: no API response is
 /// anywhere near this, so hitting it means something is wrong.
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
@@ -87,6 +89,11 @@ impl Client {
         self.root.trim_end_matches('/')
     }
 
+    /// Whether `-v` asked for requests to be logged.
+    pub fn verbose(&self) -> bool {
+        self.verbose
+    }
+
     pub fn api_key(&self) -> Option<&str> {
         self.api_key.as_deref()
     }
@@ -118,6 +125,10 @@ impl Client {
 
     pub fn patch(&self, path: &str, body: &Value) -> Result<ApiResponse> {
         self.request(&Method::PATCH, path, &Query::new(), Some(body), true)
+    }
+
+    pub fn put(&self, path: &str, body: &Value) -> Result<ApiResponse> {
+        self.request(&Method::PUT, path, &Query::new(), Some(body), true)
     }
 
     pub fn delete(&self, path: &str) -> Result<ApiResponse> {
@@ -273,6 +284,69 @@ impl Client {
             request = request.header(CONTENT_TYPE, "application/json").json(body);
         }
         request
+    }
+}
+
+/// PUT a file's bytes to a presigned upload URL the API handed out.
+///
+/// That URL is on a storage host, not the API, and is its own credential:
+/// the request goes through a client of its own that has never seen the API
+/// key or token, carries nothing but the content type and the bytes, and
+/// follows no redirect. The URL's query string holds the signature, so only
+/// its origin and path are ever printed.
+pub fn upload_to_storage(
+    presigned_url: &str,
+    content_type: &str,
+    bytes: Vec<u8>,
+    verbose: bool,
+) -> Result<()> {
+    let url = reqwest::Url::parse(presigned_url)
+        .map_err(|e| Error::Other(format!("the API returned an unusable upload URL: {e}")))?;
+    let shown = format!("{}{}", url.origin().ascii_serialization(), url.path());
+    config::check_transport(&url.origin().ascii_serialization()).map_err(|_| {
+        Error::Other(format!(
+            "refusing to upload to {shown}: uploads go over https (plain http only to a local dev host)"
+        ))
+    })?;
+    let http = HttpClient::builder()
+        .user_agent(USER_AGENT_VALUE)
+        .timeout(UPLOAD_TIMEOUT)
+        .redirect(Policy::none())
+        .build()?;
+    if verbose {
+        eprintln!("> PUT {shown} ({} bytes)", bytes.len());
+    }
+    let response = http
+        .put(url)
+        .header(CONTENT_TYPE, content_type)
+        .body(bytes)
+        .send()?;
+    let status = response.status();
+    if verbose {
+        eprintln!("< {status}");
+    }
+    if status.is_success() {
+        return Ok(());
+    }
+    let detail = storage_error(&read_limited(response).unwrap_or_default());
+    Err(Error::Other(format!(
+        "the storage host refused the upload to {shown}: HTTP {status}{detail}"
+    )))
+}
+
+/// The `<Code>` and `<Message>` of a storage error, as `: Code: Message`.
+/// Nothing else of the body is shown: a signature error echoes the signature
+/// and the access key id it was given.
+fn storage_error(body: &str) -> String {
+    let element = |name: &str| {
+        let start = body.find(&format!("<{name}>"))? + name.len() + 2;
+        let end = start + body[start..].find(&format!("</{name}>"))?;
+        Some(body[start..end].trim().to_string())
+    };
+    match (element("Code"), element("Message")) {
+        (Some(code), Some(message)) => format!(": {code}: {message}"),
+        (Some(text), None) | (None, Some(text)) => format!(": {text}"),
+        (None, None) => String::new(),
     }
 }
 
@@ -477,6 +551,35 @@ mod tests {
         ] {
             assert_eq!(parse_error(status, "{}", None).code, code);
         }
+    }
+
+    #[test]
+    fn a_storage_error_shows_its_code_and_message_only() {
+        let body = "<?xml version=\"1.0\"?><Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match.</Message><AWSAccessKeyId>AKIAEXAMPLE</AWSAccessKeyId><SignatureProvided>abc123</SignatureProvided></Error>";
+        assert_eq!(
+            storage_error(body),
+            ": SignatureDoesNotMatch: The request signature we calculated does not match."
+        );
+        assert_eq!(storage_error("<html>nope</html>"), "");
+        assert_eq!(storage_error(""), "");
+    }
+
+    #[test]
+    fn an_upload_url_must_be_https_or_local() {
+        let refused = upload_to_storage(
+            "http://storage.example.com/bucket/key?X-Amz-Signature=secret",
+            "image/png",
+            Vec::new(),
+            false,
+        );
+        assert!(matches!(
+            refused,
+            Err(Error::Other(m)) if m.contains("http://storage.example.com/bucket/key") && !m.contains("secret")
+        ));
+        assert!(matches!(
+            upload_to_storage("not a url", "image/png", Vec::new(), false),
+            Err(Error::Other(_))
+        ));
     }
 
     #[test]
