@@ -18,8 +18,8 @@ Install a release:
 
 <!-- x-release-please-start-version -->
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.sh | sh
-# Windows: irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 | iex
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.sh | sh
+# Windows: irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.ps1 | iex
 # from a checkout instead: cargo install --path .
 ```
 <!-- x-release-please-end -->
