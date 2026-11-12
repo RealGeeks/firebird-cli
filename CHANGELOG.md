@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/RealGeeks/firebird-cli/compare/v0.1.0...v0.2.0) (2026-11-12)
+
+
+### Features
+
+* change live site settings, restore revisions and manage media ([#7](https://github.com/RealGeeks/firebird-cli/issues/7)) ([bb1f077](https://github.com/RealGeeks/firebird-cli/commit/bb1f07786dd39e9f8d1a2f2a6548ecee567feda7))
+
 ## 0.1.0 (2026-11-11)
 
 

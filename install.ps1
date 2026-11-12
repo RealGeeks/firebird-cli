@@ -2,7 +2,7 @@
 .SYNOPSIS
   Install the firebird-cli CLI on Windows from its GitHub release archives.
 
-  irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.1.0/install.ps1 | iex   # x-release-please-version
+  irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.ps1 | iex   # x-release-please-version
 
   `iex` runs the script with no arguments, so -Version and -InstallDir reach it
   only from the environment, or by turning the download into a scriptblock
