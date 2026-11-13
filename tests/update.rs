@@ -252,7 +252,23 @@ mod install {
     fn copy_of_binary(dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
         let path = dir.join("firebird-cli");
         std::fs::copy(assert_cmd::cargo::cargo_bin("firebird-cli"), &path)?;
+        wait_until_runnable(&path)?;
         Ok(path)
+    }
+
+    /// A test on another thread can start a process while this copy is still
+    /// open for writing. That process holds the copy open until it execs, and
+    /// Linux refuses to run a file open for writing ("Text file busy").
+    fn wait_until_runnable(path: &Path) -> std::io::Result<()> {
+        for _ in 0..200 {
+            match std::process::Command::new(path).arg("--version").output() {
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                other => return other.map(|_| ()),
+            }
+        }
+        Ok(())
     }
 
     /// The archive `release.yml` would publish, holding a script that
