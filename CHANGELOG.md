@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/RealGeeks/firebird-cli/compare/v0.2.0...v0.3.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* `nav get --nav-bar` is removed; the bar is a positional argument. `nav get` prints the new response shape (nested `items`, no `navBars`), and an unknown bar is exit 4 instead of the default bar. These routes do not exist before cincpro/firebird#2068 is deployed.
+
+### Features
+
+* nav list, nav get by bar, and nav set ([#9](https://github.com/RealGeeks/firebird-cli/issues/9)) ([c9b8b1a](https://github.com/RealGeeks/firebird-cli/commit/c9b8b1ab9387cb90dbeaebafd481ab2ba9a3d927))
+
 ## [0.2.0](https://github.com/RealGeeks/firebird-cli/compare/v0.1.0...v0.2.0) (2026-11-12)
 
 
