@@ -333,7 +333,7 @@ fn save(
 /// What to tell a person after a live save: that it is live, and the command
 /// that takes it back. Looks up the revision before the newest one; if that
 /// cannot be read the note says where the history is instead.
-fn undo_note(ctx: &Context, history: &str, key: Option<&str>) -> String {
+pub fn undo_note(ctx: &Context, history: &str, key: Option<&str>) -> String {
     let mut query: Query = vec![
         ("resourceType".into(), history.to_string()),
         ("limit".into(), "2".into()),

@@ -9,11 +9,9 @@ exit codes, and a built-in guide written for agents.
 pages, blocks, drafts, versions, navigation, theme, footer, headers, social
 links, areas, media and revisions; editing a page's draft (add, patch, move,
 duplicate, remove and reorder blocks, then validate, publish or discard);
-and changing what is live at once: the theme, footer, headers, social links,
-page settings and featured areas, restoring a revision, and importing,
-uploading and describing media. Saving navigation has no command yet and
-goes through the raw `firebird-cli api`; a dedicated command is coming.
-Expect breaking changes.
+and changing what is live at once: the theme, navigation, footer, headers,
+social links, page settings and featured areas, restoring a revision, and
+importing, uploading and describing media. Expect breaking changes.
 
 ```bash
 pbpaste | firebird-cli auth login --site www.example.com --api-key-stdin
@@ -165,7 +163,8 @@ firebird-cli draft list | status <page> | validate <page> | discard <page>
 firebird-cli draft publish <page> [--message TEXT]
 firebird-cli versions list <page> | get <page> <n> | restore <page> <n>
 
-firebird-cli nav get [--nav-bar UUID | --page <page>] | anchors <page>
+firebird-cli nav list | get [<navBarUuid>|default | --page <page>] | anchors <page>
+firebird-cli nav set <navBarUuid>|default --data JSON|@file|- [--page <page> | --detach]
 firebird-cli styling get | fonts | set [k=v]... [--data JSON|@file|-]
 firebird-cli footer get | set [k=v]... [--data ...]
 firebird-cli headers list | get <headerUuid> | update <headerUuid> [k=v]... [--data ...]
@@ -241,7 +240,11 @@ firebird-cli media upload ./porch.jpg --alt "A front porch"
   object on a save, so the CLI reads the current value, applies your fields
   and sends everything back; two writers doing that at once can undo each
   other.
-- The theme, social links, footer and headers keep a history: a save prints
+- `nav set <navBarUuid>|default --data @bar.json` replaces every item on a
+  navigation bar: read it with `nav get <navBarUuid> -o json`, edit `items`
+  and pass it back. An item left out is deleted. The bar stays on its page
+  unless `--page` or `--detach` is given.
+- The theme, navigation, social links, footer and headers keep a history: a save prints
   its `revisionUuid`, and `revisions restore` of the revision before it
   undoes it. Page settings, featured areas and media details keep no
   history.
@@ -252,11 +255,12 @@ firebird-cli media upload ./porch.jpg --alt "A front porch"
   `-y` skips the question, and a script or agent is not asked.
 
 `api` calls any endpoint with the stored key, for what has no command yet
-(saving navigation). `-d @file` refuses hidden files and credential folders,
+(generating an image). `-d @file` refuses hidden files and credential folders,
 because what it reads is sent to the API:
 
 ```bash
-firebird-cli api PUT /navigation -d @navigation.json
+firebird-cli api GET /pages
+firebird-cli api PUT /social-links -d @social.json
 firebird-cli api GET /docs --no-auth
 firebird-cli api GET /healthz/ready --no-auth
 ```

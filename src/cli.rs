@@ -120,7 +120,7 @@ pub enum Command {
     Draft(draft::DraftCommand),
     /// A page's published versions
     Versions(versions::VersionsCommand),
-    /// Navigation bars and the sections a link can point at (read only)
+    /// Navigation bars: list them, read one, replace its items
     Nav(nav::NavCommand),
     /// The theme: colours, fonts, radii, spacing
     Styling(settings::StylingCommand),
