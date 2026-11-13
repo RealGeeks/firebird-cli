@@ -18,8 +18,8 @@ Where this guide shows the `api` form, a dedicated command is planned.
 Install a release:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.sh | sh   # macOS, Linux  x-release-please-version
-irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.ps1 | iex   # Windows PowerShell  x-release-please-version
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.3.0/install.sh | sh   # macOS, Linux  x-release-please-version
+irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.3.0/install.ps1 | iex   # Windows PowerShell  x-release-please-version
 ```
 
 The scripts verify the release checksum and, with the GitHub CLI logged in,
@@ -587,7 +587,7 @@ revoked: sign in again with a new one (§1).
 ```bash
 firebird-cli update                 # install the latest release over this binary
 firebird-cli update --check         # report only: {current_version, release_version, update_available}
-firebird-cli update --tag v0.2.0    # install that release; an older tag downgrades  x-release-please-version
+firebird-cli update --tag v0.3.0    # install that release; an older tag downgrades  x-release-please-version
 ```
 
 - Nothing updates on its own: a script keeps the version it was written

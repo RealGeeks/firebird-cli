@@ -70,7 +70,7 @@ arch=$(uname -m)
 case "$os" in
   Darwin) os_part="apple-darwin" ;;
   Linux) os_part="unknown-linux-musl" ;; # static: runs whatever the glibc
-  MINGW*|MSYS*|CYGWIN*) die "on Windows run install.ps1 instead: irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.ps1 | iex" ;; # x-release-please-version
+  MINGW*|MSYS*|CYGWIN*) die "on Windows run install.ps1 instead: irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.3.0/install.ps1 | iex" ;; # x-release-please-version
   *) die "unsupported OS: $os" ;;
 esac
 case "$arch" in

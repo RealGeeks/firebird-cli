@@ -28,13 +28,13 @@ macOS and Linux:
 
 <!-- x-release-please-start-version -->
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.3.0/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.2.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/realgeeks/firebird-cli/v0.3.0/install.ps1 | iex
 ```
 <!-- x-release-please-end -->
 
@@ -58,14 +58,14 @@ there, else `~/.local/bin`; `install.ps1` to
 | `GH_TOKEN` / `GITHUB_TOKEN`      |                                     | Avoids GitHub's anonymous API rate limit   |
 
 Piped into `sh`, flags go after `-s --`:
-`curl … | sh -s -- --version v0.2.0`. <!-- x-release-please-version -->
+`curl … | sh -s -- --version v0.3.0`. <!-- x-release-please-version -->
 
 ### Updating
 
 ```bash
 firebird-cli update            # install the latest release over this binary
 firebird-cli update --check    # only report whether one is available
-firebird-cli update --tag v0.2.0   # x-release-please-version
+firebird-cli update --tag v0.3.0   # x-release-please-version
 ```
 
 `update` downloads the same archives as the install scripts, checks the
