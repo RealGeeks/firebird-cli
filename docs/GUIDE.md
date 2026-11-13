@@ -544,8 +544,8 @@ yet: generating an image (§9).
 ```bash
 firebird-cli api GET /pages
 firebird-cli api GET /blocks -p includeSchema=false           # -p key=value, repeatable
-firebird-cli api POST /media/generate -d @request.json        # a file
-cat request.json | firebird-cli api POST /media/generate -d - # stdin
+firebird-cli api PUT /social-links -d @social.json           # a body from a file
+cat social.json | firebird-cli api PUT /social-links -d -    # or from stdin
 firebird-cli api GET /docs --no-auth                          # the OpenAPI document
 firebird-cli api GET /healthz/ready --no-auth                 # {"raw": "OK"}
 ```

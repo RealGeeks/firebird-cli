@@ -259,7 +259,8 @@ firebird-cli media upload ./porch.jpg --alt "A front porch"
 because what it reads is sent to the API:
 
 ```bash
-firebird-cli api POST /media/generate -d @request.json
+firebird-cli api GET /pages
+firebird-cli api PUT /social-links -d @social.json
 firebird-cli api GET /docs --no-auth
 firebird-cli api GET /healthz/ready --no-auth
 ```

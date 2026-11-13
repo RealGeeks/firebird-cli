@@ -1178,6 +1178,9 @@ fn nav_set_refuses_bad_input_before_any_write_and_keeps_the_apis_refusals() -> T
             r#"{"items": [], "pageUuid": 3}"#,
         ],
         vec!["nav", "set", "a/b", "-d", &read],
+        // one bar's read must not replace another bar's items
+        vec!["nav", "set", OTHER, "-d", &read],
+        vec!["nav", "set", "default", "-d", &read],
     ] {
         env.cmd()?.args(&args).assert().code(2);
     }

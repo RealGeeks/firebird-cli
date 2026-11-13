@@ -153,7 +153,9 @@ fn set(ctx: &Context, args: &SetArgs) -> Result<()> {
             .map(|page| resolve_page(ctx, page).map(Value::String))
             .transpose()?
     };
-    let body = save_body(&read_json(&args.data)?, page)?;
+    let input = read_json(&args.data)?;
+    refuse_another_bars_items(&input, &bar)?;
+    let body = save_body(&input, page)?;
     confirm(
         ctx,
         &format!("replace every item on navigation bar {bar} on the live site"),
@@ -173,6 +175,25 @@ fn set(ctx: &Context, args: &SetArgs) -> Result<()> {
         });
     }
     ctx.printer.one(&saved, "/revisionUuid")
+}
+
+/// A save replaces every item, so the output of `nav get` for one bar must
+/// not land on another. Data with no `navBarUuid` is not a read and passes.
+fn refuse_another_bars_items(input: &Value, bar: &str) -> Result<()> {
+    let Some(read_from) = input.get("navBarUuid").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let same = if bar == DEFAULT_BAR {
+        input.get("isSiteDefault").and_then(Value::as_bool) != Some(false)
+    } else {
+        read_from.eq_ignore_ascii_case(bar)
+    };
+    if same {
+        return Ok(());
+    }
+    Err(Error::Usage(format!(
+        "--data is navigation bar {read_from}, not {bar}, and saving replaces every item on {bar}. To copy its items on purpose, remove `navBarUuid` from the data"
+    )))
 }
 
 /// A `NAV_BAR` argument as a path segment: a navBarUuid or `default`.
@@ -307,6 +328,22 @@ mod tests {
         assert_eq!(bar_segment(" Default ").ok().as_deref(), Some(DEFAULT_BAR));
         assert_eq!(bar_segment("home-bar").ok().as_deref(), Some("home-bar"));
         assert!(matches!(bar_segment("a/b"), Err(Error::Usage(_))));
+    }
+
+    #[test]
+    fn a_read_of_one_bar_is_not_saved_onto_another() {
+        assert!(refuse_another_bars_items(&read(), "home-bar").is_ok());
+        assert!(refuse_another_bars_items(&read(), "HOME-BAR").is_ok());
+        assert!(matches!(
+            refuse_another_bars_items(&read(), "other-bar"),
+            Err(Error::Usage(m)) if m.contains("home-bar") && m.contains("other-bar")
+        ));
+        // a page's bar is not the site default; the default's own read is
+        assert!(refuse_another_bars_items(&read(), DEFAULT_BAR).is_err());
+        let site_default = json!({"navBarUuid": "d", "isSiteDefault": true, "items": []});
+        assert!(refuse_another_bars_items(&site_default, DEFAULT_BAR).is_ok());
+        // hand-written data names no bar
+        assert!(refuse_another_bars_items(&json!({"items": []}), "other-bar").is_ok());
     }
 
     fn read() -> Value {
