@@ -439,7 +439,7 @@ mod tests {
             ["i5", "Contact", "", "anchor", "contact"],
         ];
         assert_eq!(cells, expected);
-        assert!(rows(&json!({})).is_empty());
+        assert_eq!(rows(&json!({})), Vec::<Value>::new());
     }
 
     #[test]
